@@ -1,0 +1,858 @@
+{
+ "flan_rows": 1357022,
+ "min_tasks": 3,
+ "templates": [
+  {
+   "english": "A:",
+   "rows": 364801,
+   "share_of_flan_rows": 0.2688246763869709,
+   "tasks": 1185,
+   "nl_27b": [
+    [
+     "A:",
+     1597
+    ],
+    [
+     "Antwoord:",
+     57
+    ],
+    [
+     "V:",
+     2
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Antwoord:",
+     68864
+    ],
+    [
+     "A:",
+     21817
+    ],
+    [
+     "Biografie:",
+     233
+    ]
+   ]
+  },
+  {
+   "english": "Q:",
+   "rows": 294104,
+   "share_of_flan_rows": 0.21672751068147753,
+   "tasks": 1195,
+   "nl_27b": [
+    [
+     "V:",
+     1824
+    ],
+    [
+     "Vraag:",
+     81
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Vraag:",
+     95622
+    ],
+    [
+     "V:",
+     2168
+    ],
+    [
+     "Q:",
+     100
+    ]
+   ]
+  },
+  {
+   "english": "Output:",
+   "rows": 234868,
+   "share_of_flan_rows": 0.17307604445616948,
+   "tasks": 978,
+   "nl_27b": [
+    [
+     "Uitvoer:",
+     918
+    ],
+    [
+     "Antwoord:",
+     219
+    ],
+    [
+     "Resultaat:",
+     83
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Uitvoer:",
+     43254
+    ],
+    [
+     "Output:",
+     14127
+    ],
+    [
+     "Antwoord:",
+     3184
+    ]
+   ]
+  },
+  {
+   "english": "Answer:",
+   "rows": 187473,
+   "share_of_flan_rows": 0.13815030264800424,
+   "tasks": 228,
+   "nl_27b": [
+    [
+     "Antwoord:",
+     659
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Antwoord:",
+     38465
+    ],
+    [
+     "Biografie:",
+     85
+    ],
+    [
+     "ANTWOORD:",
+     3
+    ]
+   ]
+  },
+  {
+   "english": "Input:",
+   "rows": 156674,
+   "share_of_flan_rows": 0.1154542815075953,
+   "tasks": 977,
+   "nl_27b": [
+    [
+     "Invoer:",
+     1042
+    ],
+    [
+     "Gegeven:",
+     2
+    ],
+    [
+     "Tekst:",
+     2
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Invoer:",
+     44824
+    ],
+    [
+     "Input:",
+     1387
+    ],
+    [
+     "Context:",
+     556
+    ]
+   ]
+  },
+  {
+   "english": "Detailed Instructions:",
+   "rows": 156574,
+   "share_of_flan_rows": 0.11538059073471174,
+   "tasks": 976,
+   "nl_27b": [
+    [
+     "Gedetailleerde instructies:",
+     1268
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Gedetailleerde instructies:",
+     46879
+    ]
+   ]
+  },
+  {
+   "english": "Question:",
+   "rows": 131533,
+   "share_of_flan_rows": 0.09692768429693845,
+   "tasks": 298,
+   "nl_27b": [
+    [
+     "Vraag:",
+     910
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Vraag:",
+     42305
+    ],
+    [
+     "Antwoordmogelijkheden:",
+     3
+    ],
+    [
+     "Context:",
+     3
+    ]
+   ]
+  },
+  {
+   "english": "Problem:",
+   "rows": 84763,
+   "share_of_flan_rows": 0.062462509819295485,
+   "tasks": 977,
+   "nl_27b": [
+    [
+     "Probleem:",
+     380
+    ],
+    [
+     "Opdracht:",
+     21
+    ],
+    [
+     "Opgave:",
+     17
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Probleem:",
+     25787
+    ],
+    [
+     "Vraag:",
+     1208
+    ],
+    [
+     "Opgave:",
+     823
+    ]
+   ]
+  },
+  {
+   "english": "Student:",
+   "rows": 78658,
+   "share_of_flan_rows": 0.057963688134753895,
+   "tasks": 980,
+   "nl_27b": [
+    [
+     "Student:",
+     366
+    ],
+    [
+     "Leerling:",
+     90
+    ],
+    [
+     "CONCLUSIE:",
+     1
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Student:",
+     21889
+    ],
+    [
+     "Leerling:",
+     5
+    ]
+   ]
+  },
+  {
+   "english": "Teacher:",
+   "rows": 78581,
+   "share_of_flan_rows": 0.05790694623963355,
+   "tasks": 978,
+   "nl_27b": [
+    [
+     "Leraar:",
+     553
+    ],
+    [
+     "Docent:",
+     29
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Docent:",
+     23006
+    ]
+   ]
+  },
+  {
+   "english": "Now, understand the problem?",
+   "rows": 78451,
+   "share_of_flan_rows": 0.05781114823488492,
+   "tasks": 976,
+   "nl_27b": [
+    [
+     "Begrijp je nu het probleem?",
+     158
+    ],
+    [
+     "Begrijpt u de opdracht?",
+     113
+    ],
+    [
+     "Begrijpt u het probleem nu?",
+     69
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Begrijpt u het probleem nu?",
+     14580
+    ],
+    [
+     "Begrijpt u het probleem?",
+     3774
+    ],
+    [
+     "Begrijpt u nu het probleem?",
+     2930
+    ]
+   ]
+  },
+  {
+   "english": "Instructions:",
+   "rows": 78349,
+   "share_of_flan_rows": 0.057735983646543684,
+   "tasks": 977,
+   "nl_27b": [
+    [
+     "Instructies:",
+     580
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Instructies:",
+     23073
+    ]
+   ]
+  },
+  {
+   "english": "Definition:",
+   "rows": 78324,
+   "share_of_flan_rows": 0.05771756095332279,
+   "tasks": 972,
+   "nl_27b": [
+    [
+     "Definitie:",
+     662
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Definitie:",
+     23491
+    ],
+    [
+     "Vertaling:",
+     3
+    ]
+   ]
+  },
+  {
+   "english": "You will be given a definition of a task first, then some input of the task.",
+   "rows": 78195,
+   "share_of_flan_rows": 0.057622499856302994,
+   "tasks": 973,
+   "nl_27b": [
+    [
+     "Eerst krijgt u een definitie van een taak, daarna een aantal gegevens die bij die taak horen.",
+     73
+    ],
+    [
+     "U krijgt eerst een definitie van een taak, gevolgd door een beschrijving van de taak.",
+     69
+    ],
+    [
+     "Eerst krijgt u een definitie van een taak, daarna een aantal gegevens die bij de taak horen.",
+     62
+    ]
+   ],
+   "nl_12b": [
+    [
+     "U krijgt eerst een definitie van een taak, gevolgd door de input voor die taak.",
+     15557
+    ],
+    [
+     "U krijgt eerst een definitie van een taak, gevolgd door de invoer voor die taak.",
+     1181
+    ],
+    [
+     "U krijgt eerst een definitie van de taak, gevolgd door de input voor de taak.",
+     928
+    ]
+   ]
+  },
+  {
+   "english": "Solution:",
+   "rows": 78044,
+   "share_of_flan_rows": 0.05751122678924881,
+   "tasks": 976,
+   "nl_27b": [
+    [
+     "Oplossing:",
+     389
+    ],
+    [
+     "Antwoord:",
+     8
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Oplossing:",
+     23300
+    ],
+    [
+     "Antwoord:",
+     494
+    ],
+    [
+     "Titel:",
+     2
+    ]
+   ]
+  },
+  {
+   "english": "Given the task definition and input, reply with output.",
+   "rows": 77679,
+   "share_of_flan_rows": 0.0572422554682238,
+   "tasks": 976,
+   "nl_27b": [
+    [
+     "Gezien de taakomschrijving en de gegeven informatie, geef een antwoord.",
+     235
+    ],
+    [
+     "Gezien de taakomschrijving en de invoer, geef een antwoord.",
+     139
+    ],
+    [
+     "Gezien de taakomschrijving en de gegeven input, geef een antwoord.",
+     35
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Gezien de taakomschrijving en de input, geef de output.",
+     9735
+    ],
+    [
+     "Gezien de taakomschrijving en de input, geef het gewenste resultaat.",
+     7203
+    ],
+    [
+     "Gezien de taakomschrijving en de input, geef het antwoord.",
+     2554
+    ]
+   ]
+  },
+  {
+   "english": "Please answer the following question:",
+   "rows": 76806,
+   "share_of_flan_rows": 0.056598935020950286,
+   "tasks": 174,
+   "nl_27b": [
+    [
+     "Beantwoord de volgende vraag:",
+     497
+    ],
+    [
+     "Beantwoord alstublieft de volgende vraag:",
+     18
+    ],
+    [
+     "Beantwoord de volgende vraag, waarbij u gebruikmaakt van de informatie in de alinea:",
+     7
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Beantwoord de volgende vraag:",
+     20319
+    ],
+    [
+     "Gelieve het volgende antwoord te geven:",
+     187
+    ],
+    [
+     "Gelieve het volgende antwoord te geven op de volgende vraag:",
+     154
+    ]
+   ]
+  },
+  {
+   "english": "The answer is:",
+   "rows": 48758,
+   "share_of_flan_rows": 0.03593014704256821,
+   "tasks": 206,
+   "nl_27b": [
+    [
+     "Het antwoord is:",
+     117
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Het antwoord is:",
+     9167
+    ],
+    [
+     "Antwoord:",
+     40
+    ],
+    [
+     "ANTWOORD:",
+     1
+    ]
+   ]
+  },
+  {
+   "english": "Answer the following question:",
+   "rows": 43419,
+   "share_of_flan_rows": 0.031995796678314724,
+   "tasks": 195,
+   "nl_27b": [
+    [
+     "Beantwoord de volgende vraag:",
+     426
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Beantwoord de volgende vraag:",
+     13426
+    ],
+    [
+     "Vertaal de volgende vraag:",
+     196
+    ],
+    [
+     "Vraag:",
+     94
+    ]
+   ]
+  },
+  {
+   "english": "Sentence:",
+   "rows": 41596,
+   "share_of_flan_rows": 0.030652413888647347,
+   "tasks": 82,
+   "nl_27b": [
+    [
+     "Zin:",
+     97
+    ],
+    [
+     "Bewering:",
+     4
+    ],
+    [
+     "Tekst:",
+     1
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Zin:",
+     10147
+    ],
+    [
+     "Bewering:",
+     212
+    ],
+    [
+     "Zinsnede:",
+     121
+    ]
+   ]
+  },
+  {
+   "english": "Given the question:",
+   "rows": 38722,
+   "share_of_flan_rows": 0.028534541075973714,
+   "tasks": 174,
+   "nl_27b": [
+    [
+     "Gezien de vraag:",
+     318
+    ],
+    [
+     "Gezien de volgende informatie:",
+     2
+    ],
+    [
+     "Gezien de volgende vragen:",
+     1
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Gezien de vraag:",
+     10962
+    ],
+    [
+     "Gezien de volgende vragen:",
+     37
+    ],
+    [
+     "Vraag:",
+     5
+    ]
+   ]
+  },
+  {
+   "english": "The answer to this question is:",
+   "rows": 38215,
+   "share_of_flan_rows": 0.028160928857454044,
+   "tasks": 174,
+   "nl_27b": [
+    [
+     "Het antwoord op deze vraag is:",
+     60
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Het antwoord op deze vraag is:",
+     5904
+    ],
+    [
+     "De antwoord op deze vraag is:",
+     3
+    ]
+   ]
+  },
+  {
+   "english": "Context:",
+   "rows": 30260,
+   "share_of_flan_rows": 0.022298827874566513,
+   "tasks": 57,
+   "nl_27b": [
+    [
+     "Context:",
+     191
+    ],
+    [
+     "Achtergrond:",
+     57
+    ],
+    [
+     "Tekst:",
+     3
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Context:",
+     10922
+    ],
+    [
+     "Achtergrond:",
+     1
+    ],
+    [
+     "Nieuws:",
+     1
+    ]
+   ]
+  },
+  {
+   "english": "Options:",
+   "rows": 27021,
+   "share_of_flan_rows": 0.01991198374086787,
+   "tasks": 82,
+   "nl_27b": [
+    [
+     "Opties:",
+     66
+    ],
+    [
+     "Antwoordmogelijkheden:",
+     6
+    ],
+    [
+     "Mogelijke antwoorden:",
+     3
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Opties:",
+     13197
+    ],
+    [
+     "Antwoordmogelijkheden:",
+     2205
+    ],
+    [
+     "Antwoordopties:",
+     299
+    ]
+   ]
+  },
+  {
+   "english": "Passage:",
+   "rows": 23730,
+   "share_of_flan_rows": 0.017486820405269776,
+   "tasks": 30,
+   "nl_27b": [
+    [
+     "Tekst:",
+     94
+    ],
+    [
+     "Tekstfragment:",
+     36
+    ],
+    [
+     "Deel van de tekst:",
+     1
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Tekst:",
+     4559
+    ],
+    [
+     "Tekstfragment:",
+     79
+    ],
+    [
+     "Vertaling:",
+     23
+    ]
+   ]
+  },
+  {
+   "english": "Sentence 1:",
+   "rows": 20584,
+   "share_of_flan_rows": 0.015168508690352847,
+   "tasks": 26,
+   "nl_27b": [
+    [
+     "Zin 1:",
+     126
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Zin 1:",
+     8333
+    ],
+    [
+     "Zins 1:",
+     263
+    ],
+    [
+     "Bewering 1:",
+     151
+    ]
+   ]
+  },
+  {
+   "english": "Information:",
+   "rows": 20493,
+   "share_of_flan_rows": 0.015101450087028803,
+   "tasks": 9,
+   "nl_27b": [
+    [
+     "Informatie:",
+     70
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Informatie:",
+     7
+    ]
+   ]
+  },
+  {
+   "english": "Head:",
+   "rows": 20177,
+   "share_of_flan_rows": 0.01486858724471674,
+   "tasks": 21,
+   "nl_27b": [
+    [
+     "Beginzin:",
+     1
+    ],
+    [
+     "Inleidende zin:",
+     1
+    ],
+    [
+     "Head:",
+     1
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Hoofd:",
+     23
+    ]
+   ]
+  },
+  {
+   "english": "Title:",
+   "rows": 18955,
+   "share_of_flan_rows": 0.013968086000079587,
+   "tasks": 21,
+   "nl_27b": [
+    [
+     "Titel:",
+     96
+    ]
+   ],
+   "nl_12b": [
+    [
+     "Titel:",
+     5411
+    ]
+   ]
+  },
+  {
+   "english": "Head and Tail, separated with <sep>.",
+   "rows": 15997,
+   "share_of_flan_rows": 0.011788312938183759,
+   "tasks": 17,
+   "nl_27b": [
+    [
+     "een beginzin en een eindzin, gescheiden door <sep>.",
+     1
+    ],
+    [
+     "een inleidende zin en een afsluitende zin, gescheiden door <sep>.",
+     1
+    ],
+    [
+     "'Head' en 'Tail', gescheiden door '<sep>'.",
+     1
+    ]
+   ],
+   "nl_12b": [
+    [
+     "\"Hoofd\" en \"Staart\", gescheiden door \"<sep>\".",
+     23
+    ]
+   ]
+  }
+ ]
+}

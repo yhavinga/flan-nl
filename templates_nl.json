@@ -1,0 +1,117 @@
+{
+ "A:": [
+  "Antwoord:",
+  "A:"
+ ],
+ "Q:": [
+  "Vraag:",
+  "V:"
+ ],
+ "Output:": [
+  "Uitvoer:",
+  "Resultaat:"
+ ],
+ "Answer:": [
+  "Antwoord:"
+ ],
+ "Input:": [
+  "Invoer:",
+  "Gegeven:"
+ ],
+ "Detailed Instructions:": [
+  "Gedetailleerde instructies:"
+ ],
+ "Question:": [
+  "Vraag:"
+ ],
+ "Problem:": [
+  "Probleem:",
+  "Opdracht:"
+ ],
+ "Student:": [
+  "Student:",
+  "Leerling:"
+ ],
+ "Teacher:": [
+  "Leraar:",
+  "Docent:"
+ ],
+ "Now, understand the problem?": [
+  "Begrijp je het probleem nu?",
+  "Begrijpt u het probleem nu?",
+  "Begrijp je de opdracht nu?",
+  "Begrijpt u de opdracht nu?"
+ ],
+ "Instructions:": [
+  "Instructies:"
+ ],
+ "Definition:": [
+  "Definitie:"
+ ],
+ "You will be given a definition of a task first, then some input of the task.": [
+  "Eerst krijg je een taakomschrijving, daarna de bijbehorende invoer.",
+  "Eerst krijgt u een taakomschrijving, daarna de bijbehorende invoer.",
+  "Je krijgt eerst een definitie van een taak, gevolgd door de input.",
+  "U krijgt eerst een definitie van een taak, gevolgd door de input voor die taak."
+ ],
+ "Solution:": [
+  "Oplossing:",
+  "Antwoord:"
+ ],
+ "Given the task definition and input, reply with output.": [
+  "Gegeven de taakomschrijving en de invoer, geef een antwoord.",
+  "Gegeven de taakdefinitie en input, geef de output."
+ ],
+ "Please answer the following question:": [
+  "Beantwoord de volgende vraag:",
+  "Beantwoord alstublieft de volgende vraag:"
+ ],
+ "The answer is:": [
+  "Het antwoord is:"
+ ],
+ "Answer the following question:": [
+  "Beantwoord de volgende vraag:"
+ ],
+ "Sentence:": [
+  "Zin:",
+  "Bewering:"
+ ],
+ "Given the question:": [
+  "Gegeven de vraag:",
+  "Uitgaande van de vraag:"
+ ],
+ "The answer to this question is:": [
+  "Het antwoord op deze vraag is:"
+ ],
+ "Context:": [
+  "Context:",
+  "Achtergrond:"
+ ],
+ "Options:": [
+  "Opties:",
+  "Antwoordmogelijkheden:"
+ ],
+ "Passage:": [
+  "Tekst:",
+  "Tekstfragment:"
+ ],
+ "Sentence 1:": [
+  "Zin 1:"
+ ],
+ "Information:": [
+  "Informatie:"
+ ],
+ "Head:": [
+  "Beginzin:",
+  "Inleidende zin:"
+ ],
+ "Title:": [
+  "Titel:"
+ ],
+ "Head and Tail, separated with <sep>.": [
+  "Beginzin en eindzin, gescheiden door <sep>."
+ ],
+ "Tail:": [
+  "Eindzin:"
+ ]
+}
