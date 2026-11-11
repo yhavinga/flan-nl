@@ -206,6 +206,10 @@ python -m pytest -q
 ruff check --line-length 100 --target-version py310 --select E,F,I,W --ignore E501 .
 ```
 
+## Acknowledgements
+
+Research supported with Cloud TPUs from Google's [TPU Research Cloud (TRC)](https://sites.research.google/trc/about/).
+
 ## Licences
 
 - **Code**: Apache License 2.0 (`LICENSE`).
