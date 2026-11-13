@@ -12,7 +12,7 @@ gemma4-31b-flan); the engine is gemma4_engine.py (MaxText's MaxEngine, continuou
 A segment's class is decided by the plan's token count (column tokens), as in translate.py. Every prompt of the class
 is built and measured before the engine starts: one longer than the class's largest prefill length stops the run.
 Shards, their names and their order are translate.py's (shards_of, a fixed random order, a stored shard skipped at a
-restart), and so are the shard's columns (id, text_nl, ended, tokens_in, tokens_out): flan_nl.py assemble reads
+restart; the bucket through the Python client), and so are the shard's columns (id, text_nl, ended, tokens_in, tokens_out): flan_nl.py assemble reads
 them as it reads TranslateGemma's.
 """
 
@@ -20,7 +20,6 @@ import argparse
 import json
 import os
 import random
-import subprocess
 import sys
 import time
 import traceback
@@ -44,6 +43,19 @@ def class_bounds(model, length_class):
 def select(ids, texts, tokens, low, high):
     chosen = [k for k, n in enumerate(tokens) if low < n <= high]
     return [ids[k] for k in chosen], [texts[k] for k in chosen]
+
+
+# The bucket through the Python client, not gsutil: on these images gsutil is a snap, and a snap refuses to start under
+# a process with no_new_privs, which this one has once libtpu is up (gemma4_engine.py; smoke test of 14 Nov on a v4-32)
+def stored_shards(client, out):
+    """The names of the shards stored under out (gs://bucket/dir)"""
+    bucket, prefix = ge.split_gs(out.rstrip("/") + "/")
+    return {Path(b.name).name for b in client.list_blobs(bucket, prefix=prefix) if b.name.endswith(".parquet")}
+
+
+def upload(client, local, url):
+    bucket, name = ge.split_gs(url)
+    client.bucket(bucket).blob(name).upload_from_filename(str(local))
 
 
 def check_prompts(codec, texts, shapes):
@@ -90,7 +102,8 @@ def main(argv=None):
     ids, texts = select(ids, texts, tokens, low, high)
     shards = tg.shards_of(ids, texts, args.shard_size)
     shards = random.Random(0).sample(shards, len(shards))
-    done = tg.done_shards(args.out)
+    client = ge.gcs_client()
+    done = stored_shards(client, args.out)
     pending = sum(name not in done for name, _, _ in shards)
     print(f"{args.length_class}: {len(ids):,} segments in {len(shards)} shards, {len(shards) - pending} done before; "
           f"shapes {json.dumps(shapes)}", flush=True)
@@ -123,7 +136,7 @@ def main(argv=None):
     def store(name, rows, seconds):
         path = local / name
         pq.write_table(pa.table(rows), path, compression="zstd")
-        subprocess.run(["gsutil", "-q", "cp", str(path), f"{args.out}/{name}"], check=True)
+        upload(client, path, f"{args.out}/{name}")
         path.unlink()
         n_in, n_out = sum(rows["tokens_in"]), sum(rows["tokens_out"])
         for key, value in (("segments", len(rows["id"])), ("tokens_in", n_in), ("tokens_out", n_out), ("seconds", seconds)):

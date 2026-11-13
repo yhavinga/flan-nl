@@ -71,6 +71,52 @@ def test_a_prompt_longer_than_the_largest_prefill_stops_before_the_engine():
         tg4.check_prompts(FakeCodec({"a": 10, "b": 257}), ["a", "b"], shapes)
 
 
+class FakeBlob:
+    def __init__(self, store, name):
+        self.store, self.name = store, name
+
+    def upload_from_filename(self, path):
+        self.store[self.name] = Path(path).read_bytes()
+
+
+class FakeClient:
+    """google.cloud.storage.Client's list_blobs, bucket and blob, on a dict of (bucket, name) -> bytes"""
+
+    def __init__(self):
+        self.objects = {}
+
+    def list_blobs(self, bucket, prefix):
+        return [FakeBlob(None, n) for (b, n) in self.objects if b == bucket and n.startswith(prefix)]
+
+    def bucket(self, bucket):
+        client = self
+
+        class Bucket:
+            def blob(self, name):
+                return FakeBlob(_Store(client.objects, bucket), name)
+        return Bucket()
+
+
+class _Store(dict):
+    def __init__(self, objects, bucket):
+        super().__init__()
+        self.objects, self.bucket_name = objects, bucket
+
+    def __setitem__(self, name, value):
+        self.objects[(self.bucket_name, name)] = value
+
+
+def test_shards_are_stored_and_found_through_the_python_client(tmp_path):
+    client = FakeClient()
+    local = tmp_path / "shard-00003.parquet"
+    local.write_bytes(b"x")
+    tg4.upload(client, local, "gs://bkt/out/w0/small/shard-00003.parquet")
+    tg4.upload(client, local, "gs://bkt/out/w0/smaller/shard-00009.parquet")
+    assert client.objects[("bkt", "out/w0/small/shard-00003.parquet")] == b"x"
+    assert tg4.stored_shards(client, "gs://bkt/out/w0/small") == {"shard-00003.parquet"}
+    assert tg4.stored_shards(client, "gs://bkt/out/w0/medium/") == set()
+
+
 @pytest.mark.parametrize("slots, sync_every", [(1, 1), (5, 8)])
 def test_the_vendored_decode_loop_stops_at_any_of_gemma_4s_stop_tokens(slots, sync_every):
     prompts = [[a, a % 7] for a in range(1, 20)]

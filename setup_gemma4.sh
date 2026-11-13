@@ -42,7 +42,7 @@ elif [ ! -s "$VENV/done.txt" ]; then
   "$VENV/bin/python" -c "import importlib.metadata as m; print({p: m.version(p) for p in ('maxtext', 'jax', 'jaxlib', 'libtpu', 'flax', 'transformers', 'tokenizers', 'pyarrow', 'torch')})" \
     > "$VENV/done.txt"
 fi
-"$VENV/bin/python" -c "import yaml, langid, pyarrow, transformers, jax" || { echo "$(hostname): $VENV lacks a package"; exit 1; }
+"$VENV/bin/python" -c "import yaml, langid, pyarrow, transformers, jax, google.cloud.storage" || { echo "$(hostname): $VENV lacks a package"; exit 1; }
 echo "$(hostname): venv $VENV, MaxText $(maxtext_commit "$VENV")"
 TOK=$SHM/tokenizer-gemma4
 [ -s "$TOK/tokenizer.json" ] || "$VENV/bin/python" -c "from huggingface_hub import snapshot_download as s; s('$GEMMA4', revision='$GEMMA4_REV', local_dir='$TOK', allow_patterns=['tokenizer*', 'chat_template.jinja', 'config.json', 'generation_config.json'])"
