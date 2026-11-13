@@ -31,8 +31,8 @@ models:
   # shapes on v4 hosts (30.75 GiB a chip). The classes are FLAN-nl's (translate.py): the same max_source and
   # max_decode, the prefill lengths raised for this prompt (flan-v1 takes 166 tokens beside the segment: tiny's 32 +
   # 166 = 198 need 256, so tiny has 128 slots; xlong's 512 + 166 = 678 fit 704). Every max_decode is at most 1,024:
-  # the fork's decode is correct only up to the sliding window of 1,024 tokens when slots are reused (a shared cache
-  # index that wraps).
+  # the pilot's MaxText (fork 2249474) decodes correctly only up to the sliding window of 1,024 tokens when slots are
+  # reused (a shared cache index that wraps); f4d8615, setup_gemma4.sh's default, also above it.
   gemma4-31b-flan:
     maxtext_model: gemma4-31b
     hf_repo: google/gemma-4-31B-it

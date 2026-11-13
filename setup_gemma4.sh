@@ -2,22 +2,25 @@
 # On every worker of a TPU VM of v4 hosts: the environment of the Gemma 4 translation (translate_gemma4.py), in
 # /dev/shm/flan_nl. Each step is skipped when its result is there.
 #   bash setup_gemma4.sh
-# venv-g4: MaxText from git at a fixed commit of the fork yhavinga/maxtext (branch fix-nnx-decode-cache-abstract-init:
-# MaxText's main of 9 Nov 2026 with the NNX decode cache made from shapes inside the init jit; main has the
-# sliding-window decode mask measured in true positions, which MaxText 0.2.5 of setup.sh lacks), installed with the
-# fork's tpu-requirements.txt, plus langid, PyYAML and CPU torch (for MetricX's weights). Without JetStream:
-# gemma4_engine.py registers MaxText's stub ResultTokens as a pytree. VENV=<dir> takes an existing venv instead, when
-# it was installed from the same fork commit (checked). tokenizer-gemma4: Gemma 4 31B-it's tokenizer and chat
+# venv-g4: MaxText from git at a fixed commit of the fork yhavinga/maxtext, installed with the fork's
+# tpu-requirements.txt. FORK_COMMIT (default f4d8615, branch fix-decode-cache-shared-index): MaxText's main of 9 Nov
+# 2026 (which measures the sliding-window decode mask in true positions; MaxText 0.2.5 of setup.sh does not), with the
+# NNX decode cache made from shapes inside the init jit (2249474, branch fix-nnx-decode-cache-abstract-init) and the
+# decode distances measured from the newest token after the shared cache index wraps (f4d8615), so that a decode limit
+# above the window of 1,024 tokens is correct when slots are reused. The pilot (PILOT_GEMMA4.md) ran on 2249474 with
+# every decode limit at most 1,024; a full run takes f4d8615. Plus langid, PyYAML and CPU torch (for MetricX's
+# weights). Without JetStream: gemma4_engine.py registers MaxText's stub ResultTokens as a pytree. VENV=<dir> takes an
+# existing venv instead, when it was installed from FORK_COMMIT (checked). tokenizer-gemma4: Gemma 4 31B-it's tokenizer and chat
 # template at the revision of models.yml.
 # The checkpoint is not made here: Gemma 4 31B-it converted by MaxText's to_maxtext (CKPT of translate_gemma4.sh).
 # Needs ~/.cache/huggingface/token (Gemma 4 is gated); the token is never printed.
 set -euo pipefail
 SHM=/dev/shm/flan_nl
 FORK=https://github.com/yhavinga/maxtext.git
-FORK_COMMIT=2249474b93b971d8248520e3a09b94b4ce626ce4
+FORK_COMMIT=${FORK_COMMIT:-f4d8615f478b6c18de9df8f2dff1f57f775a2521}
 GEMMA4=google/gemma-4-31B-it
 GEMMA4_REV=842da3794eaa0b77d5f08bae87a17459d91ff475
-VENV=${VENV:-$SHM/venv-g4}
+VENV=${VENV:-$SHM/venv-g4-${FORK_COMMIT:0:7}}
 export PATH=$HOME/.local/bin:$PATH UV_CACHE_DIR=$SHM/uv-cache UV_PYTHON_INSTALL_DIR=$SHM/python HF_HUB_DISABLE_PROGRESS_BARS=1
 [ -s ~/.cache/huggingface/token ] || { echo "$(hostname): no ~/.cache/huggingface/token"; exit 1; }
 mkdir -p "$SHM" ~/logs
@@ -27,7 +30,7 @@ command -v uv > /dev/null || { echo "$(hostname): uv is not on PATH after instal
 maxtext_commit() {
   "$1/bin/python" -c "import importlib.metadata as m, json; d = m.distribution('maxtext'); print(json.loads(d.read_text('direct_url.json') or '{}').get('vcs_info', {}).get('commit_id'))"
 }
-if [ -x "$VENV/bin/python" ] && [ "$VENV" != "$SHM/venv-g4" ]; then
+if [ -x "$VENV/bin/python" ] && [ "$VENV" != "$SHM/venv-g4-${FORK_COMMIT:0:7}" ]; then
   [ "$(maxtext_commit "$VENV")" = "$FORK_COMMIT" ] || { echo "$(hostname): $VENV has not MaxText $FORK_COMMIT"; exit 1; }
 elif [ ! -s "$VENV/done.txt" ]; then
   [ -x "$VENV/bin/python" ] || uv venv -q --python 3.12 "$VENV"

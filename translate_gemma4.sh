@@ -13,7 +13,7 @@ set -euo pipefail
 ROOT=${ROOT:?set ROOT to the gs:// directory of the plan and the translations}
 CKPT=${CKPT:?set CKPT to the MaxText checkpoint of Gemma 4 31B-it, the directory that holds 0/items}
 SHM=/dev/shm/flan_nl
-VENV=${VENV:-$SHM/venv-g4}
+VENV=${VENV:-$SHM/venv-g4-f4d8615}  # setup_gemma4.sh's default; the pilot ran on the venv of 2249474
 PY=$VENV/bin/python
 CODE=$(cd "$(dirname "$0")" && pwd)
 WORKER=$(hostname | sed 's/.*-w-//')

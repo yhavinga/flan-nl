@@ -192,10 +192,12 @@ and the output (shards with `id`, `text_nl`, `ended`, `tokens_in`, `tokens_out`)
   [nl-backtranslation](https://github.com/yhavinga/nl-backtranslation) at commit `2057072`, unchanged but for its
   first comment, with `models.yml` beside it. A copy rather than a dependency: that repository is not a package, and
   the engine is one file; a fix to it belongs in both.
-- **MaxText** (`setup_gemma4.sh`): MaxText from git, the fork `yhavinga/maxtext` at commit `2249474`, not MaxText
-  0.2.5. MaxText 0.2.5 counts the sliding window of the local attention layers in cache slots instead of positions;
-  the fork has the fix. The fork's decode is correct while the decode limit is at most the window (1,024 tokens) when
-  slots are reused; every class keeps to that.
+- **MaxText** (`setup_gemma4.sh`): MaxText from git, the fork `yhavinga/maxtext`, not MaxText 0.2.5, which counts
+  the sliding window of the local attention layers in cache slots instead of positions. `FORK_COMMIT` defaults to
+  `f4d8615` (branch `fix-decode-cache-shared-index`), whose decode is also correct with a decode limit above the
+  window (1,024 tokens) when slots are reused; the pilot ran on its parent `2249474`, whose decode is correct only
+  while the decode limit is at most the window, and every class of `models.yml` keeps to that. With `f4d8615` longer
+  segments, or whole examples, could be translated in classes of their own.
 - **Checkpoint**: Gemma 4 31B-it converted to a MaxText checkpoint with MaxText's `to_maxtext`, in `CKPT`.
 
 ```
