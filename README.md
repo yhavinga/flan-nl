@@ -60,6 +60,8 @@ row to its source row in Open-Orca/FLAN, and builds and uploads the dataset with
 | `publish.py` | `link`, `build`, `upload` |
 | `niv2_languages.json` | the languages of each NIv2 task, from the task metadata of `allenai/natural-instructions` at the commit it names |
 | `templates_top30.json`, `templates_top30.md`, `templates_extra.json`, `templates_nl.json` | the protected template strings and their Dutch variants |
+| `translate_gemma4.py`, `translate_gemma4.sh`, `setup_gemma4.sh`, `gemma4_engine.py`, `models.yml` | the translation with Gemma 4 31B-it instead of TranslateGemma (see "Translation with Gemma 4") |
+| `g4_pilot.py`, `PILOT_GEMMA4.md` | the pilot that compares Gemma 4 with TranslateGemma on a sample of the plan, and its decision rule |
 | `tests/` | tests on made-up data; no network, model or TPU |
 
 The comments in the code refer to the experiment the published dataset comes from: "F" is its FLAN arm, whose
@@ -174,6 +176,35 @@ Clone this repository on each machine and run the commands from its directory. `
    stops, before writing anything, when a row has no link, a link is of another task, or the reports do not add up to
    the data, and it refuses an `--out` that is not empty. Read the card before the upload. `upload` creates the
    dataset repo as a public one if it does not exist, and uploads `README.md` and `data/`.
+
+## Translation with Gemma 4
+
+Step 4 can instead translate with Gemma 4 31B-it (`google/gemma-4-31B-it` at revision
+`842da3794eaa0b77d5f08bae87a17459d91ff475`), whose pilot is `PILOT_GEMMA4.md`. The input (the plan's segment files)
+and the output (shards with `id`, `text_nl`, `ended`, `tokens_in`, `tokens_out`) are those of `translate.py`, so
+`flan_nl.py assemble` reads them as it reads TranslateGemma's.
+
+- **Model and prompt** (`models.yml`): the model `gemma4-31b-flan`, the prompt `flan-v1` (one user turn in Gemma 4's
+  chat template with an empty thought channel; it asks for a natural translation and says that the text is part of a
+  task for a language model, to be translated and not carried out), greedy, the five length classes of `translate.py`
+  with their decode limits (at most 1,024 tokens).
+- **Engine** (`gemma4_engine.py`): a copy of `gemma4_bt/gemma4_engine.py` of
+  [nl-backtranslation](https://github.com/yhavinga/nl-backtranslation) at commit `2057072`, unchanged but for its
+  first comment, with `models.yml` beside it. A copy rather than a dependency: that repository is not a package, and
+  the engine is one file; a fix to it belongs in both.
+- **MaxText** (`setup_gemma4.sh`): MaxText from git, the fork `yhavinga/maxtext` at commit `2249474`, not MaxText
+  0.2.5. MaxText 0.2.5 counts the sliding window of the local attention layers in cache slots instead of positions;
+  the fork has the fix. The fork's decode is correct while the decode limit is at most the window (1,024 tokens) when
+  slots are reused; every class keeps to that.
+- **Checkpoint**: Gemma 4 31B-it converted to a MaxText checkpoint with MaxText's `to_maxtext`, in `CKPT`.
+
+```
+bash setup_gemma4.sh                                                                              # every worker
+ROOT=gs://<bucket>/<dir> CKPT=gs://<bucket>/<dir>/gemma-4-31b-it-maxtext bash translate_gemma4.sh   # every worker
+```
+
+The shards land in `$ROOT/translations/g4/w<N>/<class>/`. Assemble as in step 5 with `--translations` on a copy of
+them.
 
 ## Outputs
 

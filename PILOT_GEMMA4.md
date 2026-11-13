@@ -13,15 +13,18 @@ existed.** It is applied as it stands; the report says for each part whether it 
 
 All from `plan2/` (the published plan), segments of examples with status `translate` only.
 
-- **S, the segment sample (2,000 segments).** Cells: length class (`tiny`, `small`, `medium`, `long`, `xlong`, by the
+- **S, the segment sample (~2,000 segments).** Cells: length class (`tiny`, `small`, `medium`, `long`, `xlong`, by the
   plan's token count) x instruction-like or not (the segment looks like an instruction, a question, a request to
   translate, or code: `INSTRUCTION_LIKE`, `CODE_LIKE` in `g4_pilot.py`) x answer kind of the segment's home example
-  (`label`, `option`, `text`, empty; the home example is the first example that uses the segment in a seeded order).
-  50 segments a cell (all of a smaller cell), at most 2 per task in a cell. The 30 protected template strings are not
+  (`label`, `option`, `text`; the home example is the first example that uses the segment in a seeded order). 67
+  segments a cell (all of a smaller cell), at most 2 per task in a cell. The 30 protected template strings are not
   in S. Estimates over S are weighted by cell (weight = segments of the cell in the plan / segments drawn from it), so
   they stand for the plan's segments.
-- **E, whole examples (400).** 100 per answer kind, at most one per task, with all their segments and the template
+- **E, whole examples (402).** 134 per answer kind, at most one per task, with all their segments and the template
   strings, so that `flan_nl.py assemble` can be run on them with either translation.
+- (Corrected at 00:31 CET, before any Gemma 4 translation, the rule unchanged: the plan's empty answer kind is that of
+  the examples it does not translate, so the kinds of S and E are `label`, `option` and `text`; S had 4 kinds of 50 a
+  cell and E 4 kinds of 100.)
 - **T, throughput segments.** Per worker of the v4-32 and per class, random segments of the class (tiny 2,048, small
   1,024, medium 512, long 384, xlong 384), so that every class fills its decode slots for several shards; their
   seconds give the cost of a full run. They are measured like S, unweighted, as a uniform sample within each class.
