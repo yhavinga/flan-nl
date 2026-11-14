@@ -328,15 +328,23 @@ def test_the_pilot_from_draw_to_decision(tmp_path, monkeypatch):
 
 
 def test_throughput_and_cost_from_the_logs(tmp_path):
+    def shard(c, segments, seconds):
+        return f"SHARD {json.dumps({'class': c, 'segments': segments, 'seconds': seconds, 'tokens_in': 1, 'tokens_out': 2, 'not_ended': 0})}"
+
     for w in range(2):
-        (tmp_path / f"w{w}.log").write_text(
-            f"MAXTEXT {json.dumps({'class': 'tiny'})}\nengine ready in 100 s\n"
-            + "\n".join(f"SHARD {json.dumps({'class': 'tiny', 'segments': 50, 'seconds': 5.0, 'tokens_in': 1, 'tokens_out': 2, 'not_ended': 1})}"
-                        for _ in range(2)))
+        (tmp_path / f"w{w}.log").write_text("\n".join([
+            f"MAXTEXT {json.dumps({'class': 'tiny'})}", "engine ready in 100 s",
+            shard("tiny", 50, 105.0), shard("tiny", 50, 5.0), shard("tiny", 50, 5.0),  # 100 s of compilation first
+            f"MAXTEXT {json.dumps({'class': 'xlong'})}", "engine ready in 120 s", shard("xlong", 20, 120.0)]))
     speed = gp.throughput(sorted(tmp_path.glob("*.log")))
-    assert speed["tiny"]["segments_per_s"] == 10.0 and speed["tiny"]["workers"] == 2 and speed["tiny"]["engine_s"] == 100
-    costs = gp.cost({"tiny": 144_000}, speed)
-    assert costs["hours_one_v4_32"] == pytest.approx((144_000 / 40 + 100) / 3600, abs=0.05)
-    assert costs["hours_two_v4_32"] == pytest.approx((144_000 / 80 + 100) / 3600, abs=0.05)
+    assert speed["tiny"]["segments_per_s"] == 10.0 and speed["tiny"]["compile_s"] == 100 and speed["tiny"]["workers"] == 2
+    assert speed["tiny"]["engine_s"] == 100 and speed["tiny"]["rate_from"] == "shards after the first"
+    # xlong: one shard a worker, its 120 s less tiny's 100 s of compilation
+    assert speed["xlong"]["segments_per_s"] == 1.0 and speed["xlong"]["rate_from"] == "single shards"
+    costs = gp.cost({"tiny": 144_000, "xlong": 4_000}, speed)
+    one = (144_000 / 40 + 200) + (4_000 / 4 + 220)
+    two = (144_000 / 80 + 200) + (4_000 / 8 + 220)
+    assert costs["hours_one_v4_32"] == pytest.approx(one / 3600, abs=0.05)
+    assert costs["hours_two_v4_32"] == pytest.approx(two / 3600, abs=0.05)
     assert gp.cost({"tiny": 1, "small": 1}, speed) is None
     assert np.isclose(gp.weighted_rate([True], [1.0]), 1.0)

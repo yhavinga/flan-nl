@@ -581,33 +581,53 @@ def checkset(args):
 # -------------------------------------------------------------------------------------------------------- report
 
 def throughput(log_paths):
-    """Per class: segments, seconds of the shards, tokens and engine starts, from translate_gemma4.py's logs"""
-    per = defaultdict(lambda: {"segments": 0, "seconds": 0.0, "tokens_in": 0, "tokens_out": 0, "shards": 0, "engine": [],
-                               "not_ended": 0, "workers": set()})
+    """Per class, from translate_gemma4.py's logs: the steady rate of one worker and the fixed cost of a class's start.
+
+    The first shard of a class in a process also holds XLA's compilation of the engine's programs (pilot: tiny's first
+    shard of 512 took ~120 s, the next ones ~20 s), which a full run pays once per class and worker, not per shard.
+    So the rate (segments_per_s) counts the shards after the first; compile_s is the first shard's seconds beyond what
+    its segments take at that rate. A class that had a single shard per worker gets the rate of its shards less the
+    median compile time of the classes where it was measured (rate_from: "single shards")."""
+    runs = defaultdict(list)  # (path, class) -> shards in order
+    engine = defaultdict(list)
     for path in log_paths:
         current = None
         for line in Path(path).read_text(errors="replace").splitlines():
             if line.startswith("MAXTEXT "):
                 current = json.loads(line[len("MAXTEXT "):])["class"]
             elif line.startswith("engine ready in ") and current:
-                per[current]["engine"].append(float(line.split()[3]))
+                engine[current].append(float(line.split()[3]))
             elif line.startswith("SHARD "):
                 d = json.loads(line[len("SHARD "):])
-                c = per[d["class"]]
-                c["segments"] += d["segments"]
-                c["seconds"] += d["seconds"]
-                c["tokens_in"] += d["tokens_in"]
-                c["tokens_out"] += d["tokens_out"]
-                c["shards"] += 1
-                c["not_ended"] += d["not_ended"]
-                c["workers"].add(path)
-    return {c: dict(v, workers=len(v["workers"]), segments_per_s=round(v["segments"] / v["seconds"], 3) if v["seconds"] else None,
-                    engine_s=round(statistics.mean(v["engine"])) if v["engine"] else None) for c, v in per.items()}
+                runs[(str(path), d["class"])].append(d)
+    out = {}
+    for c in sorted({c for _, c in runs}, key=lambda c: list(CLASSES).index(c) if c in CLASSES else 99):
+        shards = [d for (_, k), ds in runs.items() if k == c for d in ds]
+        rest = [d for (_, k), ds in runs.items() if k == c for d in ds[1:]]
+        row = {"workers": sum(1 for (_, k) in runs if k == c), "shards": len(shards),
+               "segments": sum(d["segments"] for d in shards), "seconds": round(sum(d["seconds"] for d in shards), 1),
+               "tokens_in": sum(d["tokens_in"] for d in shards), "tokens_out": sum(d["tokens_out"] for d in shards),
+               "not_ended": sum(d["not_ended"] for d in shards),
+               "engine_s": round(statistics.mean(engine[c])) if engine[c] else None}
+        if rest:
+            rate = sum(d["segments"] for d in rest) / sum(d["seconds"] for d in rest)
+            firsts = [ds[0] for (_, k), ds in runs.items() if k == c and len(ds) > 1]
+            row.update(segments_per_s=round(rate, 3), rate_from="shards after the first",
+                       compile_s=round(statistics.median(max(0.0, d["seconds"] - d["segments"] / rate) for d in firsts)))
+        out[c] = row
+    measured = [r["compile_s"] for r in out.values() if "compile_s" in r]
+    for c, row in out.items():
+        if "segments_per_s" not in row:
+            compile_s = statistics.median(measured) if measured else 0.0
+            seconds = sum(d["seconds"] for (_, k), ds in runs.items() if k == c for d in ds) - row["workers"] * compile_s
+            row.update(segments_per_s=round(row["segments"] / seconds, 3) if seconds > 0 else None,
+                       rate_from="single shards", compile_s=round(compile_s))
+    return out
 
 
 def cost(plan_classes, speed, workers=WORKERS):
-    """Hours of a full run on one and on two v4-32s: per class its segments over all workers at the measured rate of
-    one worker, plus the class's engine start (the workers start in parallel)"""
+    """Hours of a full run on one and on two v4-32s: per class its segments over all workers at the steady rate of one
+    worker, plus the class's start (engine and compilation; the workers start in parallel)"""
     out = {"per_class_hours_one": {}}
     total_one = total_two = 0.0
     for c, n in plan_classes.items():
@@ -615,10 +635,10 @@ def cost(plan_classes, speed, workers=WORKERS):
         if not s or not s.get("segments_per_s"):
             return None
         decode = n / (workers * s["segments_per_s"])
-        engine = s["engine_s"] or 0
-        out["per_class_hours_one"][c] = round((decode + engine) / 3600, 2)
-        total_one += decode + engine
-        total_two += decode / 2 + engine
+        start = (s["engine_s"] or 0) + (s.get("compile_s") or 0)
+        out["per_class_hours_one"][c] = round((decode + start) / 3600, 2)
+        total_one += decode + start
+        total_two += decode / 2 + start
     out["hours_one_v4_32"] = round(total_one / 3600, 1)
     out["hours_two_v4_32"] = round(total_two / 3600, 1)
     return out
@@ -824,11 +844,13 @@ def report_md(stats, setup, rule, speed, costs, sample_info):
     rows = []
     for c in CLASSES:
         s = speed.get(c, {})
-        rows.append([c, sample_info["plan_classes"][c], s.get("workers", "–"), s.get("shards", "–"), s.get("segments", "–"),
-                     num(s.get("segments_per_s")), round(s["tokens_out"] / s["seconds"]) if s.get("seconds") else "–", s.get("engine_s", "–"),
-                     num(costs["per_class_hours_one"].get(c), 1) if costs else "–"])
-    lines_ += [table_md(["klasse", "segmenten hele set", "workers", "shards", "segmenten gemeten", "segm./s per worker",
-                         "uitvoertokens/s per worker", "motorstart (s)", "uren op één v4-32"], rows), ""]
+        rows.append([c, thousands(sample_info["plan_classes"][c]), s.get("workers", "–"), s.get("shards", "–"), s.get("segments", "–"),
+                     num(s.get("segments_per_s")) + (" (*)" if s.get("rate_from") == "single shards" else ""),
+                     s.get("engine_s", "–"), s.get("compile_s", "–"), num(costs["per_class_hours_one"].get(c), 1) if costs else "–"])
+    lines_ += [table_md(["klasse", "segmenten hele set", "workers", "shards", "segmenten gemeten", "segm./s per worker (zonder eerste shard)",
+                         "motorstart (s)", "compileren (s)", "uren op één v4-32"], rows), "",
+               "(*) één shard per worker: de snelheid van die shards min de mediane compileertijd van de andere klassen. "
+               "De eerste shard van elke klasse bevat XLA's compilatie; die telt als vaste start per klasse en worker.", ""]
     if costs:
         lines_ += [f"- **Schatting hele set ({thousands(sample_info['plan_segments'])} segmenten): {num(costs['hours_one_v4_32'], 1)} uur "
                    f"op één v4-32, {num(costs['hours_two_v4_32'], 1)} uur op twee** (elke worker een eigen TPU van 4 chips; per "
