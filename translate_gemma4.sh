@@ -9,6 +9,9 @@
 # a MaxText checkpoint, the directory that holds 0/items).
 # Overrides: VENV (setup_gemma4.sh's), SEGMENTS, OUT, CLASSES, EXTRA (more flags, e.g. "--max-shards 1"), NAME (of the
 # log and the job).
+# Units instead of this worker's segment file (translate_gemma4.py --units; g4_full.py): UNITS (a local units.json),
+# SEGMENTS (then the local directory of the plan's segment files), CLAIMS (gs:// directory of the claims), OWNER
+# (<vm>/w<k>), RUN; the units land in $OUT/<class>/<unit>.parquet.
 set -euo pipefail
 ROOT=${ROOT:?set ROOT to the gs:// directory of the plan and the translations}
 CKPT=${CKPT:?set CKPT to the MaxText checkpoint of Gemma 4 31B-it, the directory that holds 0/items}
@@ -22,6 +25,7 @@ OUT=${OUT:-$ROOT/translations/g4/w$WORKER}
 CLASSES=${CLASSES:-tiny small medium long xlong}
 EXTRA=${EXTRA:-}
 NAME=${NAME:-flan_nl_translate_g4}
+UNITS=${UNITS:-}
 
 [ -x "$PY" ] || { echo "$(hostname): no $PY, run setup_gemma4.sh first"; exit 1; }
 [ -e ~/logs/$NAME.log ] && { echo "$(hostname): ~/logs/$NAME.log exists; a new start takes a new NAME"; exit 1; }
@@ -29,8 +33,14 @@ NAME=${NAME:-flan_nl_translate_g4}
 gsutil -q stat "$CKPT/0/commit_success.txt" || { echo "$(hostname): $CKPT has no finished checkpoint (0/commit_success.txt)"; exit 1; }
 [ -s "$SHM/tokenizer-gemma4/tokenizer.json" ] || { echo "$(hostname): no tokenizer in $SHM/tokenizer-gemma4 (setup_gemma4.sh)"; exit 1; }
 mkdir -p ~/logs "$SHM/segments"
-local_segments=$SHM/segments/$NAME-$(basename "$SEGMENTS")
-gsutil -q cp "$SEGMENTS" "$local_segments"
+if [ -n "$UNITS" ]; then
+  [ -s "$UNITS" ] && [ -d "$SEGMENTS" ] || { echo "$(hostname): UNITS must be a local units.json and SEGMENTS a local directory"; exit 1; }
+  local_segments=$SEGMENTS
+  EXTRA="--units $UNITS --claims ${CLAIMS:?set CLAIMS with UNITS} --owner ${OWNER:?set OWNER with UNITS} --run ${RUN:?set RUN with UNITS} $EXTRA"
+else
+  local_segments=$SHM/segments/$NAME-$(basename "$SEGMENTS")
+  gsutil -q cp "$SEGMENTS" "$local_segments"
+fi
 
 # A host of the v4-32 as a TPU of its own (translate.sh); MaxText dumps HLO to /tmp/xla_dump whenever XLA_FLAGS is empty
 cat > ~/run_$NAME.sh <<EOF

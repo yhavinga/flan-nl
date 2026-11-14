@@ -62,6 +62,7 @@ row to its source row in Open-Orca/FLAN, and builds and uploads the dataset with
 | `templates_top30.json`, `templates_top30.md`, `templates_extra.json`, `templates_nl.json` | the protected template strings and their Dutch variants |
 | `translate_gemma4.py`, `translate_gemma4.sh`, `setup_gemma4.sh`, `gemma4_engine.py`, `models.yml` | the translation with Gemma 4 31B-it instead of TranslateGemma (see "Translation with Gemma 4") |
 | `g4_pilot.py`, `PILOT_GEMMA4.md` | the pilot that compares Gemma 4 with TranslateGemma on a sample of the plan, and its decision rule |
+| `g4_full.py` | the whole set with Gemma 4: units claimed by the workers of one or more TPU VMs, their status, the checks of the whole set |
 | `tests/` | tests on made-up data; no network, model or TPU |
 
 The comments in the code refer to the experiment the published dataset comes from: "F" is its FLAN arm, whose
@@ -207,6 +208,29 @@ ROOT=gs://<bucket>/<dir> CKPT=gs://<bucket>/<dir>/gemma-4-31b-it-maxtext bash tr
 
 The shards land in `$ROOT/translations/g4/w<N>/<class>/`. Assemble as in step 5 with `--translations` on a copy of
 them.
+
+**The whole set in units** (`g4_full.py`, `translate_gemma4.py --units`), so that the workers of more than one TPU VM
+share the work and a restart goes on where it stopped. `g4_full.py units` cuts each class's segments of each segment
+file into units (2,048 segments for `tiny`, 1,024 for `small`, 512 for the others: a few minutes each) and measures
+every prompt against its class's largest prefill length first. The classes go longest first, so the last units of the
+run are the shortest. Each worker goes through the units of a class and claims each free one in a bucket directory
+(an object created only if absent; a claim older than its lease of 30 minutes, or of another run on the same VM, is
+taken over), translates it and stores `<out>/<class>/<unit>.parquet` with the columns above; a stored unit is skipped.
+The engine starts at the first unit a worker claims, so a class with no free unit left costs nothing.
+`g4_full.py status` counts the units stored and pending; `g4_full.py check` runs the pilot's measures (af, loops,
+chatter, `executed`, assemble's checks, `english_left`) on every segment, assembles, and reports per class, the rows
+kept and the labels and options (in Dutch).
+
+```
+python g4_full.py units --plan plan2 --out units.json --tokenizer /dev/shm/flan_nl/tokenizer-gemma4        # once
+ROOT=gs://<bucket>/<dir> CKPT=... UNITS=units.json SEGMENTS=plan2 OUT=gs://<bucket>/<dir>/translations/g4 \
+  CLAIMS=gs://<bucket>/<dir>/claims OWNER=<vm>/w<N> RUN=<name> CLASSES="xlong long medium small tiny" \
+  bash translate_gemma4.sh                                                                              # every worker
+python g4_full.py status --units units.json --out gs://<bucket>/<dir>/translations/g4
+python g4_full.py check --plan plan2 --english en/w0.parquet en/w1.parquet en/w2.parquet en/w3.parquet \
+  --shards <local copy of translations/g4> --units units.json --templates-nl templates_nl.json --nl nl-g4 \
+  --out report/flan-g4-full.md
+```
 
 ## Outputs
 
