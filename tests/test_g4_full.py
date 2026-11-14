@@ -147,3 +147,92 @@ def test_the_checks_of_the_whole_set_and_assemble(tmp_path):
         g4f.main(["check", "--plan", str(plan), "--english", *english, "--shards", str(shards), "--units",
                   str(tmp_path / "units.json"), "--templates-nl", str(ROOT / "templates_nl.json"),
                   "--nl", str(tmp_path / "nl2"), "--out", str(tmp_path / "r2" / "x.md"), "--processes", "2"])
+
+
+class _Blob:
+    def __init__(self, objects, bucket, name):
+        self.objects, self.key, self.name = objects, (bucket, name), name
+
+    def upload_from_filename(self, path):
+        self.objects[self.key] = Path(path).read_bytes()
+
+    def exists(self):
+        return self.key in self.objects
+
+
+class _Client:
+    def __init__(self):
+        self.objects = {}
+
+    def list_blobs(self, bucket, prefix):
+        return [_Blob(self.objects, b, n) for (b, n) in list(self.objects) if b == bucket and n.startswith(prefix)]
+
+    def bucket(self, bucket):
+        client = self
+
+        class Bucket:
+            def blob(self, name):
+                return _Blob(client.objects, bucket, name)
+        return Bucket()
+
+
+class _Codec:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def check(self, texts):
+        pass
+
+    def encode(self, text):
+        return [0] * 10
+
+
+def test_units_mode_claims_translates_and_stores_each_unit_once(tmp_path, monkeypatch, capsys):
+    """translate_gemma4.py --units with the bucket, the engine and the tokenizer made up: two workers of two VMs on one
+    class; the engine starts only for a worker that claims a unit"""
+    import types
+
+    import gemma4_engine as ge
+
+    plan = tmp_path / "plan2"
+    plan.mkdir()
+    tokens = [5, 6, 7, 8, 9, 10, 40]
+    for w in range(2):
+        pq.write_table(pa.table({"id": [w * 100 + k for k in range(len(tokens))], "text": [f"text {w} {k}" for k in range(len(tokens))],
+                                 "tokens": tokens}), plan / f"segments-w{w}.parquet")
+    monkeypatch.setattr(g4f, "UNIT_SIZE", dict(g4f.UNIT_SIZE, tiny=4))
+    g4f.main(["units", "--plan", str(plan), "--out", str(tmp_path / "units.json")])
+    info = json.loads((tmp_path / "units.json").read_text())
+    tiny = [u["name"] for u in info["units"] if u["class"] == "tiny"]
+    assert tiny == ["tiny-w0-0000", "tiny-w0-0001", "tiny-w1-0000", "tiny-w1-0001"]
+
+    client, claims, started = _Client(), g4f.MemoryClaims(), []
+    monkeypatch.setattr(ge, "gcs_client", lambda: client)
+    monkeypatch.setattr(g4f, "GcsClaims", lambda root, c: claims)
+    monkeypatch.setattr(ge, "TurnCodec", _Codec)
+    monkeypatch.setattr(ge, "make_engine", lambda *a: started.append(a[-1]["slots"]) or (None, None))
+    monkeypatch.setattr(ge, "EngineSlots", lambda *a: "device")
+    monkeypatch.setattr(ge, "maxtext_source", lambda: {})
+    monkeypatch.setattr(ge, "patch_maxtext", lambda: {})
+    monkeypatch.setattr(ge, "translate_shard", lambda device, codec, tok, ids, texts, *a: (
+        {"id": ids, "text_nl": [f"nl {t}" for t in texts], "ended": [True] * len(ids), "tokens_in": [10] * len(ids),
+         "tokens_out": [3] * len(ids)}, 1.0))
+    monkeypatch.setitem(sys.modules, "jax", types.SimpleNamespace(device_count=lambda: 4, process_count=lambda: 1))
+    monkeypatch.setitem(sys.modules, "transformers", types.SimpleNamespace(
+        AutoTokenizer=types.SimpleNamespace(from_pretrained=lambda path: "tokenizer")))
+
+    def run(owner, run_name, *extra):
+        tg4.main(["--segments", str(plan), "--out", "gs://bkt/translations/g4/tiny", "--ckpt", "c", "--tokenizer", "t",
+                  "--length-class", "tiny", "--units", str(tmp_path / "units.json"), "--claims", "gs://bkt/claims",
+                  "--owner", owner, "--run", run_name, "--work-dir", str(tmp_path / "work"), *extra])
+
+    run("mbert-corpus/w0", "r1", "--max-units", "1")
+    run("mbert-mix/w0", "m1")
+    assert sorted(n for _, n in client.objects) == sorted(f"translations/g4/tiny/{n}.parquet" for n in tiny)
+    first = pq.read_table(pa.BufferReader(client.objects[("bkt", "translations/g4/tiny/tiny-w0-0000.parquet")])).to_pydict()
+    assert first["id"] == [0, 1, 2, 3] and first["text_nl"][0] == "nl text 0 0"
+    assert started == [128, 128]
+    run("mbert-corpus/w1", "r1")  # every unit stored: no claim, no engine
+    assert started == [128, 128]
+    out = capsys.readouterr().out
+    assert out.count("SHARD ") == 4 and '"owner": "mbert-mix/w0"' in out and "4 stored before" in out
