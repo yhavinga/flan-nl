@@ -321,7 +321,7 @@ def test_the_card_names_the_translation_model_its_license_and_the_compute(tmp_pa
     # The card describes this dataset's own translation, not the experiment's Dutch rows or another model; every
     # placeholder is filled
     for absent in ("TranslateGemma", "Gemma Terms of Use", "finkelstein", "rows of the experiment", "{model",
-                   "{fork", "{prompt", "{repairs", "{text}"):
+                   "{fork", "{prompt", "{repairs", "{text}", "`Beginzin:`"):
         assert absent not in card, absent
 
 

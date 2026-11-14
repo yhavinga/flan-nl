@@ -797,8 +797,8 @@ and by two checks of the translations for this publication (step 6).
   dataset author with the help of Gemini. A row uses one form of address throughout: `je` or `u`, the one its machine
   translation uses, else one chosen by a hash of the row. Among the variants of that form, the one whose words the
   translation itself uses, else one chosen by hash. The labels `Head:` and `Tail:` follow the terms the translated
-  task definition uses for them (for example `Beginzin:`/`Eindzin:` or `Kop:`/`Staart:`). {with_templates:,}
-  assembled rows (before step 6 of "Selection") have a template string; form of address:
+  task definition uses for them (the pairs used are listed under the table of template strings below).
+  {with_templates:,} assembled rows (before step 6 of "Selection") have a template string; form of address:
   {", ".join(f"`{k}` {v:,}" for k, v in sorted(register_rows.items()))}.
 - Repairs: {repairs}.
 - Checks: a translated segment was unusable, and every row with it left out, when:
