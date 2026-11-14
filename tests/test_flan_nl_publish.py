@@ -11,6 +11,7 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -284,13 +285,61 @@ def test_the_card_has_the_numbers_of_the_data_and_the_reports(tmp_path):
                  "| `length_ratio` |", "| 7 |",
                  "`task1133_xcsr_nl_commonsense_mc_classification`",
                  'load_dataset("someone/flan-nl"',
-                 "Google claims no rights in Outputs you generate using Gemma.",
                  "used them until FLAN made up 10% of\n   the tokens of its training mix: 6 rows.",
                  f"assembled and published these rows: <{CODE_URL}> (`flan_nl.py`"):
         assert fact in card, fact
     word_games = [line for line in card.splitlines() if line.startswith("| word games")]
     assert word_games and word_games[0].endswith(f"| {len(pub.flan_nl.DROPPED_TASKS['word_game'])} | 1 |")
     assert [line for line in card.splitlines() if line.startswith("| extractive answers")][0].endswith("| 1 |")
+
+
+def test_the_card_names_the_translation_model_its_license_and_the_compute(tmp_path):
+    out = tmp_path / "hf"
+    pub.main(["build", *assembled(tmp_path), "--out", str(out)])
+    card = (out / "README.md").read_text()
+    config = yaml.safe_load((ROOT / "models.yml").read_text())
+    prompt = config["prompts"][config["models"][pub.TRANSLATION_MODEL]["prompt"]]["plain"]
+    for fact in ("Gemma 4 31B-it (`google/gemma-4-31B-it` at revision `842da3794eaa0b77d5f08bae87a17459d91ff475`;",
+                 "[arXiv 2607.02770](https://arxiv.org/abs/2607.02770)",
+                 "the prompt `flan-v1`",
+                 "(branch\n  `decode-cache-fixes-batch-translation`, commit `f4d8615f478b6c18de9df8f2dff1f57f775a2521`)",
+                 prompt.split("{text}")[0].format(source="English", target="Dutch") + "<segment>\n```",
+                 "A segment of more than 512 tokens (the tokenizer of\n  `google/translategemma-27b-it`) was cut",
+                 "[Apache License 2.0](https://ai.google.dev/gemma/docs/gemma_4_license)",
+                 "## Acknowledgements\n\nThe translations in this dataset were produced on Cloud TPUs provided by Google's\n"
+                 "[TPU Research Cloud (TRC)](https://sites.research.google/trc/about/).\n\n## Citation",
+                 "the model sometimes left that\n  text in English while it translated the instruction around it",
+                 "an estimated 0.4-1.5% of the rows of this dataset",
+                 "@misc{gemmateam2026gemma4,", "title={Gemma 4 Technical Report}",
+                 "- Repairs: a Devanagari danda (`।`) that the model wrote for a period became a period (3 segments); a "
+                 "final period that the source does not have was removed (41 segments).",
+                 "`translate_gemma4.py`, `gemma4_engine.py`, `g4_full.py`, `models.yml`, `publish.py`"):
+        assert fact in card, fact
+    # The plan counted the tokens, with TranslateGemma's tokenizer; the reason says which
+    assert pub.DROPPED["dropped:segment_too_long"] == ("a sentence of more than 512 tokens (the tokenizer of "
+                                                      "`google/translategemma-27b-it`)")
+    # The card describes this dataset's own translation, not the experiment's Dutch rows or another model; every
+    # placeholder is filled
+    for absent in ("TranslateGemma", "Gemma Terms of Use", "finkelstein", "rows of the experiment", "{model",
+                   "{fork", "{prompt", "{repairs", "{text}"):
+        assert absent not in card, absent
+
+
+def test_the_card_lists_only_the_repairs_made_and_refuses_an_unknown_one(tmp_path):
+    args = assembled(tmp_path)
+    report = json.loads(json.dumps(NL_REPORT))
+    report["segments_repaired"] = {"final_period": 41}
+    (tmp_path / "nl" / "report.json").write_text(json.dumps(report))
+    pub.main(["build", *args, "--out", str(tmp_path / "hf")])
+    card = (tmp_path / "hf" / "README.md").read_text()
+    assert "- Repairs: a final period that the source does not have was removed (41 segments)." in card
+    assert "danda" not in card
+    report["segments_repaired"] = {"final_period": 41, "something_else": 2}
+    (tmp_path / "nl" / "report.json").write_text(json.dumps(report))
+    with pytest.raises(SystemExit, match=r"segment repairs \['something_else'\] not in REPAIRS"):
+        pub.main(["build", *args, "--out", str(tmp_path / "hf2")])
+    assert not (tmp_path / "hf2").exists()
+
 
 
 def test_a_dutch_row_without_a_link_fails(tmp_path):
@@ -469,10 +518,11 @@ def test_build_leaves_out_the_rows_that_fail_a_check_and_counts_them(tmp_path):
         "english_left": {"rows": 1, "rows_failing": 1, "tasks": {"t0_task": 1}, "ids": ["w1-4"]}}
     card = (out / "README.md").read_text()
     for fact in ("6 English rows, of which 2 are in this dataset (1 translated from English, 1 of",
-                 "translation failed a check (see \"Selection\" and \"Translation\"); 2 of them are Dutch",
+                 "translation failed a check (see \"Selection\" and \"Translation\"); 2 of them were left\nout by two "
+                 "checks for this publication",
                  "| translated from English (`translated = true`) | 1 |", "| total | 2 |",
                  "6. Checks for this publication: two more checks were run on each of the 3 translated rows, each on",
-                 "out of this dataset only; the Dutch rows of the experiment were not changed. The 1 rows of Dutch tasks were",
+                 "A row that fails one was left\n   out. The 1 rows of Dutch tasks were not checked.",
                  "0 rows fail both and are counted under the first.",
                  "rows left out by these checks: `t0_task` (2).",
                  "Failed translations remain after the checks of step 6"):
@@ -525,6 +575,8 @@ def test_upload_makes_a_public_dataset_repo_and_uploads_the_folder(tmp_path, mon
     name, _, kwargs = calls[1]
     assert name == "upload_folder" and kwargs["repo_id"] == "someone/flan-nl" and kwargs["repo_type"] == "dataset"
     assert kwargs["folder_path"] == str(out) and kwargs["allow_patterns"] == ["README.md", "data/train-*.parquet"]
+    # The repo becomes the folder: what it held and the folder does not have is deleted in the same commit
+    assert kwargs["delete_patterns"] == ["*"]
     assert capsys.readouterr().out.strip().endswith("https://huggingface.co/datasets/someone/flan-nl")
 
 

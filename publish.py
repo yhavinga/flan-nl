@@ -6,7 +6,7 @@ Steps (README.md):
             and row of Open-Orca/FLAN it was copied from -> links/w<h>.parquet and links/report.json
     build   after the assembly: nl/w<h>.parquet, links/, plan2/examples.parquet, nl/report.json and en/w<h>.parquet
             -> a folder with data/train-*.parquet, README.md (the dataset card) and build_report.json
-    upload  that folder's README.md and data/ to a public dataset repo
+    upload  that folder's README.md and data/ to a public dataset repo, in place of the files it held
 
 Open-Orca/FLAN has no id column: (revision, file, row) is the id. link reads per host the shards the selection read
 (flan_select.select_flan: host_units of each folder, in shard order, as many as the selection's manifest says it read:
@@ -243,7 +243,8 @@ DROPPED = {
     "dropped:task:english_words": "about English words: their senses (WiC, XL-WiC), the English language, overlapping words",
     "dropped:task:word_relations": "relations between bare words (odd man out, analogies, hypernyms, meronyms, antonyms, "
                                    "semantic relations): a word translated out of context can lose the sense the answer rests on",
-    "dropped:segment_too_long": "a sentence of more than 512 tokens (TranslateGemma's tokenizer)",
+    # The plan (flan_nl.py plan) counts tokens with this tokenizer, whatever model translates the segments
+    "dropped:segment_too_long": "a sentence of more than 512 tokens (the tokenizer of `google/translategemma-27b-it`)",
     "dropped:segment_truncated": "a translation did not end within the decode limit",
     "dropped:segment_empty": "a translation is empty",
     "dropped:segment_length_ratio": "a translation has an implausible length: outside 0.5-2.2 times the source's characters "
@@ -271,6 +272,16 @@ F_DROPPED = {
     "empty": "rows with an empty instruction or answer",
     "too_long": "rows of more than {max_length:,} tokens (instruction and answer, in the experiment's tokenizer)",
 }
+# Every key of nl/report.json's segments_repaired (flan_nl.py assemble); as with DROPPED, a key not here stops the build
+REPAIRS = {
+    "danda": "a Devanagari danda (`।`) that the model wrote for a period became a period",
+    "final_period": "a final period that the source does not have was removed",
+}
+# The translation the card describes: the model and prompt of models.yml (translate_gemma4.py --model), and the
+# MaxText that ran it, setup_gemma4.sh's FORK_COMMIT; nl/report.json records neither
+TRANSLATION_MODEL = "gemma4-31b-flan"
+MAXTEXT_FORK = {"repo": "yhavinga/maxtext", "branch": "decode-cache-fixes-batch-translation",
+                "commit": "f4d8615f478b6c18de9df8f2dff1f57f775a2521"}
 
 # The checks of this publication: two failures that flan_nl.py's checks let through, found in samples of the first
 # build (9 Nov), decode loops in long passages and English left untranslated (langid takes a text that is mostly Dutch
@@ -635,6 +646,16 @@ def card(facts, nl_report, link_report, repo, code_url):
     if unknown:
         raise SystemExit(f"F's manifests drop rows as {unknown}, which publish.py does not describe (F_DROPPED)")
     repaired = nl_report["segments_repaired"]
+    if set(repaired) - set(REPAIRS):
+        raise SystemExit(f"nl/report.json has segment repairs {sorted(set(repaired) - set(REPAIRS))} not in REPAIRS")
+    repairs = "; ".join(f"{REPAIRS[k]} ({repaired[k]:,} segments)" for k in REPAIRS if repaired.get(k)) or "none"
+    import yaml
+
+    config = yaml.safe_load(Path(__file__).with_name("models.yml").read_text(encoding="utf-8"))
+    model = config["models"][TRANSLATION_MODEL]
+    prompt = config["prompts"][model["prompt"]]["plain"].format(
+        source="English", target="Dutch", source_code="en", target_code="nl", text="<segment>")
+    fork = MAXTEXT_FORK
     registers = {k: v for k, v in nl_report["template_registers"].items() if k != "rows with a variant outside the register"}
     with_templates = sum(registers.values())
     register_rows = Counter()
@@ -696,9 +717,9 @@ zero-shot templates, as published in [{FLAN_REPO}](https://huggingface.co/datase
 translation of all of FLAN. It holds the FLAN rows that the FLAN arm of a Dutch ModernBERT experiment used:
 {f_rows:,} English rows, of which {rows:,} are in this dataset ({translated:,} translated from English, {kept:,} of
 Dutch tasks kept as they were). The other {f_rows - rows:,} were left out because their task does not survive
-translation or their translation failed a check (see "Selection" and "Translation"); {left_out:,} of them are Dutch
-rows of the experiment that were left out of this dataset only, because their translation repeats itself or keeps a
-stretch of the English (step 6 of "Selection").
+translation or their translation failed a check (see "Selection" and "Translation"); {left_out:,} of them were left
+out by two checks for this publication, because their translation repeats itself or keeps a stretch of the English
+(step 6 of "Selection").
 
 Every row names the file and the row of {FLAN_REPO} it comes from, at revision `{FLAN_REVISION}`, so that it can be
 traced back to its English source.
@@ -719,7 +740,7 @@ template), `targets` the answer.
 ## Selection
 
 The rows were chosen in three stages: by the data builder of the experiment, from {FLAN_REPO}; by the translation;
-and, for this dataset only, by two checks of the translations (step 6).
+and by two checks of the translations for this publication (step 6).
 
 1. Source: the seven zero-shot folders of {FLAN_REPO} at revision `{FLAN_REVISION}`
    ({", ".join(f"`{f}`" for f in FLAN_FOLDERS)}). The few-shot folders were not used.
@@ -741,11 +762,10 @@ and, for this dataset only, by two checks of the translations (step 6).
 
 {_table(["reason", "rows"], after_rows)}
 
-   Steps 1-5 give the Dutch rows of the experiment, from which its training mixes were built.
+   Steps 1-5 give the assembled Dutch rows.
 6. Checks for this publication: two more checks were run on each of the {checked:,} translated rows, each on
    `inputs` against the English `inputs` and on `targets` against the English `targets`. A row that fails one was left
-   out of this dataset only; the Dutch rows of the experiment were not changed. The {kept:,} rows of Dutch tasks were
-   not checked.
+   out. The {kept:,} rows of Dutch tasks were not checked.
 
 {_table(["check", "rule", "rows"], check_rows)}
 
@@ -754,27 +774,33 @@ and, for this dataset only, by two checks of the translations (step 6).
 
 ## Translation
 
-- Model: TranslateGemma 27B (`google/translategemma-27b-it` at revision `7d10f0b72f89a2d0f268cea30727d8b77c0d25c2`;
-  [arXiv 2601.09012](https://arxiv.org/abs/2601.09012)), its language model converted to MaxText and run on TPU v4 in
-  bf16, greedy decoding, with the model's chat template (source language `en`, target language `nl`).
+- Model: Gemma 4 31B-it (`{model["hf_repo"]}` at revision `{model["revision"]}`;
+  [arXiv 2607.02770](https://arxiv.org/abs/2607.02770)), converted to a MaxText checkpoint and run on TPU v4 in bf16
+  with MaxText from the fork [`{fork["repo"]}`](https://github.com/{fork["repo"]}/tree/{fork["commit"]}) (branch
+  `{fork["branch"]}`, commit `{fork["commit"]}`), greedy decoding. Each segment was sent as one user turn of the
+  model's chat template with thinking off (an empty thought channel), in the prompt `{model["prompt"]}` (`models.yml`
+  in the code repository; `<segment>` is the segment):
+
+```text
+{prompt}
+```
+
 - Segments: each instruction and answer was cut into segments, and each distinct segment was translated once
   ({nl_report["segments"]:,} segments). Multiple-choice options (labelled A/B/C, a/b/c, 1/2/3, i/ii/iii, `Option1:`,
   and bullet lists after a header such as `OPTIONS:`) are segments of their own; labels and separators were kept. An
   answer that is the text of an option got that option's translation, so it is still one of the options; an answer
-  that is a label stayed the label. A segment of more than 512 tokens was cut at paragraphs, then lines, then
-  sentences.
+  that is a label stayed the label. A segment of more than 512 tokens (the tokenizer of
+  `google/translategemma-27b-it`) was cut at paragraphs, then lines, then sentences.
 - Template strings: {len(variants)} fixed strings of FLAN's templates (labels such as `Q:`, `Answer:`, `Definition:`
   and opening sentences such as `Given the task definition and input, reply with output.`) were not machine
   translated but replaced by Dutch phrasings from a table with one or more variants per string, written by the
   dataset author with the help of Gemini. A row uses one form of address throughout: `je` or `u`, the one its machine
   translation uses, else one chosen by a hash of the row. Among the variants of that form, the one whose words the
   translation itself uses, else one chosen by hash. The labels `Head:` and `Tail:` follow the terms the translated
-  task definition uses for them (for example `Beginzin:`/`Eindzin:` or `Kop:`/`Staart:`). {with_templates:,} Dutch
-  rows of the experiment (before step 6 of "Selection") have a template string; form of address:
+  task definition uses for them (for example `Beginzin:`/`Eindzin:` or `Kop:`/`Staart:`). {with_templates:,}
+  assembled rows (before step 6 of "Selection") have a template string; form of address:
   {", ".join(f"`{k}` {v:,}" for k, v in sorted(register_rows.items()))}.
-- Repairs: the Devanagari danda (`।`) that the model sometimes writes for a period became a period
-  ({repaired.get("danda", 0):,} segments); a final period that the source does not have was removed
-  ({repaired.get("final_period", 0):,} segments).
+- Repairs: {repairs}.
 - Checks: a translated segment was unusable, and every row with it left out, when:
 
 {_table(["check", "meaning", "segments"], segment_rows)}
@@ -783,8 +809,7 @@ and, for this dataset only, by two checks of the translations (step 6).
   input and output with the English task definition of NIv2 (`translated = false`).
 
 <details>
-<summary>The template strings and the Dutch variants used (Dutch rows of the experiment, before step 6 of
-"Selection")</summary>
+<summary>The template strings and the Dutch variants used (assembled rows, before step 6 of "Selection")</summary>
 
 {_table(["English", "Dutch (rows)"], variant_rows)}
 
@@ -828,10 +853,12 @@ print(source["_task_name"], source["inputs"], source["targets"], sep="\\n")
 
 - Machine translation, not reviewed by people. The checks above catch some failures; errors of meaning, wrong terms
   and literal renderings remain.
-- Failed translations remain after the checks of step 6, mostly in long passages (film plots, news articles,
-  Wikipedia paragraphs): repetitions and stretches of English below their thresholds, garbled text, and errors of
-  meaning. The checks also left out some good rows, for example where the translation kept English song lyrics,
-  quotations or lists of titles as they are.
+- Failed translations remain after the checks of step 6: repetitions and stretches of English below their
+  thresholds, and errors of meaning. The checks also left out some good rows, for example where a translation rightly
+  kept English titles, names or data keys as they are.
+- In tasks with a quoted or embedded text (a passage, sentence, review or field value), the model sometimes left that
+  text in English while it translated the instruction around it; the checks of step 6 leave out part of these rows,
+  and an estimated 0.4-1.5% of the rows of this dataset still have such a text.
 - The content is FLAN's: English-language sources with their cultural context (names, places, units, facts about the
   United States and other English-speaking countries) are translated, not adapted.
 - Tasks about properties of English were left out as far as they are listed above, but some of the remaining tasks can
@@ -848,27 +875,23 @@ the component datasets; the card of {FLAN_REPO} says:
 
 > The data is subject to all the same licensing of the component datasets.
 
-The translations were made with TranslateGemma, which is provided under the
-[Gemma Terms of Use](https://ai.google.dev/gemma/terms) (last modified April 1, 2026). Section 3.3:
-
-> Google claims no rights in Outputs you generate using Gemma.
-
-Section 1.1(f) defines Output as:
-
-> the information content output of Gemma or a Model Derivative that results from operating or otherwise using Gemma or the Model Derivative, including via a Hosted Service.
-
-If you train a model on this dataset, read the definition of "Model Derivatives" in Section 1.1(e):
-
-> means all (i) modifications to Gemma, (ii) works based on Gemma, or (iii) any other machine learning model which is created by transfer of patterns of the weights, parameters, operations, or Output of Gemma, to that model in order to cause that model to perform similarly to Gemma, including distillation methods that use intermediate data representations or methods based on the generation of synthetic data Outputs by Gemma for training that model. For clarity, Outputs are not deemed Model Derivatives.
+The translations were made with Gemma 4 31B-it (`{model["hf_repo"]}`), which is released under the
+[Apache License 2.0](https://ai.google.dev/gemma/docs/gemma_4_license).
 
 ## Code
 
-The code that selected, translated, assembled and published these rows: <{code_url}> (`flan_nl.py`, `translate.py`,
-`publish.py`; the selection of the FLAN rows is `flan_select.py`).
+The code that selected, translated, assembled and published these rows: <{code_url}> (`flan_nl.py`,
+`translate_gemma4.py`, `gemma4_engine.py`, `g4_full.py`, `models.yml`, `publish.py`; the selection of the FLAN rows is
+`flan_select.py`).
+
+## Acknowledgements
+
+The translations in this dataset were produced on Cloud TPUs provided by Google's
+[TPU Research Cloud (TRC)](https://sites.research.google/trc/about/).
 
 ## Citation
 
-The FLAN Collection, {FLAN_REPO} and TranslateGemma:
+The FLAN Collection, {FLAN_REPO} and Gemma 4:
 
 ```bibtex
 @misc{{longpre2023flan,
@@ -888,13 +911,14 @@ The FLAN Collection, {FLAN_REPO} and TranslateGemma:
       howpublished={{\\url{{https://huggingface.co/datasets/Open-Orca/FLAN}}}}
 }}
 
-@misc{{finkelstein2026translategemma,
-      title={{TranslateGemma Technical Report}},
-      author={{Mara Finkelstein and others}},
+@misc{{gemmateam2026gemma4,
+      title={{Gemma 4 Technical Report}},
+      author={{Gemma Team}},
       year={{2026}},
-      eprint={{2601.09012}},
+      eprint={{2607.02770}},
       archivePrefix={{arXiv}},
-      primaryClass={{cs.CL}}
+      primaryClass={{cs.CL}},
+      url={{https://arxiv.org/abs/2607.02770}},
 }}
 ```
 
@@ -915,8 +939,11 @@ def upload(args):
         raise SystemExit(f"{folder} needs README.md and data/train-*.parquet (publish.py build)")
     api = HfApi()
     api.create_repo(args.repo, repo_type="dataset", private=False, exist_ok=True)
+    # delete_patterns: the repo becomes this folder, in the same commit; a shard of an earlier build under another name
+    # (another -of-N) would otherwise stay and be read with the new ones. The Hub keeps .gitattributes.
     api.upload_folder(repo_id=args.repo, repo_type="dataset", folder_path=str(folder),
-                      allow_patterns=["README.md", "data/train-*.parquet"], commit_message=args.message)
+                      allow_patterns=["README.md", "data/train-*.parquet"], delete_patterns=["*"],
+                      commit_message=args.message)
     print(f"https://huggingface.co/datasets/{args.repo}", flush=True)
 
 
@@ -949,7 +976,8 @@ def main(argv=None):
     p.add_argument("--folder", required=True)
     p.add_argument("--repo", required=True)
     p.add_argument("--public", action="store_true", help="required: the dataset is public")
-    p.add_argument("--message", default="FLAN-nl: the Dutch FLAN rows of arm F-nl, with their source rows in Open-Orca/FLAN")
+    p.add_argument("--message", default="FLAN-nl: FLAN rows translated into Dutch with Gemma 4 31B-it, each with its source "
+                                        "row in Open-Orca/FLAN")
     args = parser.parse_args(argv)
     {"link": link, "build": build, "upload": upload}[args.step](args)
 

@@ -1,10 +1,12 @@
 # FLAN-nl
 
 This repository holds the pipeline that translated a sample of the zero-shot FLAN Collection, as published in
-[Open-Orca/FLAN](https://huggingface.co/datasets/Open-Orca/FLAN), into Dutch with TranslateGemma 27B, and published the
-result as a Hugging Face dataset (called "the published dataset" below). It selects FLAN rows, splits them into
-segments, translates the segments on TPU with MaxText, puts the translations back together, checks them, links every
-row to its source row in Open-Orca/FLAN, and builds and uploads the dataset with its dataset card.
+[Open-Orca/FLAN](https://huggingface.co/datasets/Open-Orca/FLAN), into Dutch with Gemma 4 31B-it, and published the
+result as the Hugging Face dataset [yhavinga/flan-nl](https://huggingface.co/datasets/yhavinga/flan-nl) (called "the
+published dataset" below). It selects FLAN rows, splits them into segments, translates the segments on TPU with
+MaxText (with Gemma 4 31B-it, see "Translation with Gemma 4", or with TranslateGemma 27B), puts the translations back
+together, checks them, links every row to its source row in Open-Orca/FLAN, and builds and uploads the dataset with
+its dataset card.
 
 ## What it does and why
 
@@ -176,7 +178,8 @@ Clone this repository on each machine and run the commands from its directory. `
    reports) and `hf/build_report.json` (the rows each publication check left out, by task and id; not uploaded). It
    stops, before writing anything, when a row has no link, a link is of another task, or the reports do not add up to
    the data, and it refuses an `--out` that is not empty. Read the card before the upload. `upload` creates the
-   dataset repo as a public one if it does not exist, and uploads `README.md` and `data/`.
+   dataset repo as a public one if it does not exist, and uploads `README.md` and `data/` in one commit that also
+   deletes every other file the repo held (except `.gitattributes`).
 
 ## Translation with Gemma 4
 
@@ -272,6 +275,8 @@ Research supported with Cloud TPUs from Google's [TPU Research Cloud (TRC)](http
 - **Code**: Apache License 2.0 (`LICENSE`).
 - **Data**: Open-Orca/FLAN is released under CC BY 4.0, and its card says: "The data is subject to all the same
   licensing of the component datasets." The published dataset is released under CC BY 4.0 with the same condition.
+- **Gemma 4 31B-it**, which translated the published dataset: released under the
+  [Apache License 2.0](https://ai.google.dev/gemma/docs/gemma_4_license).
 - **TranslateGemma**: provided under the [Gemma Terms of Use](https://ai.google.dev/gemma/terms). Section 3.3 says:
   "Google claims no rights in Outputs you generate using Gemma." Using the model requires accepting these terms. If
   you train a model on the translations, read the definition of "Model Derivatives" in Section 1.1(e) of those terms.
@@ -290,10 +295,14 @@ Research supported with Cloud TPUs from Google's [TPU Research Cloud (TRC)](http
   rows flagged by `decode_loop` and about 95% of those flagged by `english_left` were failed translations. Rows
   wrongly left out are mostly song lyrics, quotations and titles that the translation kept in English. Failed
   translations below the thresholds remain in the dataset.
+- **Quoted text left in English.** In tasks with a quoted or embedded text (a passage, sentence, review or field
+  value), Gemma 4 31B-it sometimes left that text in English while it translated the instruction around it. `not_dutch`
+  and `english_left` catch part of these rows; an estimated 0.4-1.5% of the rows of the published dataset still have
+  such a text.
 - The translations are machine translations and were not reviewed by people; errors of meaning, wrong terms and
   literal renderings remain.
 - The dataset card that `publish.py build` writes describes the published dataset: its selection, the experiment it
-  comes from, and the template phrasings. Edit it when you change the selection or the pipeline.
+  comes from, its translation (Gemma 4 31B-it: `TRANSLATION_MODEL` and `MAXTEXT_FORK` in `publish.py`), and the
+  template phrasings. Edit it when you change the selection or the pipeline.
 - The TPU scripts are written for Cloud TPU VMs of v4 hosts (4 chips and about 400 GB of RAM per host, `/dev/shm` as
-  working space, `gsutil`). `MODEL=12b` selects TranslateGemma 12B, which was used in a pilot; the published dataset
-  was translated with 27B.
+  working space, `gsutil`). `MODEL=12b` selects TranslateGemma 12B, which was used in a pilot.
