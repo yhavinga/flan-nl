@@ -195,7 +195,7 @@ and the output (shards with `id`, `text_nl`, `ended`, `tokens_in`, `tokens_out`)
   the engine is one file; a fix to it belongs in both.
 - **MaxText** (`setup_gemma4.sh`): MaxText from git, the fork `yhavinga/maxtext`, not MaxText 0.2.5, which counts
   the sliding window of the local attention layers in cache slots instead of positions. `FORK_COMMIT` defaults to
-  `f4d8615` (branch `fix-decode-cache-shared-index`), whose decode is also correct with a decode limit above the
+  `f4d8615` (branch `decode-cache-fixes-batch-translation`), whose decode is also correct with a decode limit above the
   window (1,024 tokens) when slots are reused; the pilot ran on its parent `2249474`, whose decode is correct only
   while the decode limit is at most the window, and every class of `models.yml` keeps to that. With `f4d8615` longer
   segments, or whole examples, could be translated in classes of their own.
