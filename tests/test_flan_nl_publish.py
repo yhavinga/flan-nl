@@ -224,6 +224,7 @@ def assembled(tmp_path, links=LINKS, dutch=DUTCH, english=ENGLISH):
     keys = sorted(STATUS)
     pq.write_table(pa.table({"host": [h for h, _ in keys], "position": [p for _, p in keys],
                              "status": [STATUS[k] for k in keys]}), plan / "examples.parquet")
+    (plan / "plan.json").write_text(json.dumps({"max_segment_tokens": 512}))
     return ["--nl", str(nl), "--links", str(linked), "--plan", str(plan), "--english", str(en), "--repo", "someone/flan-nl",
             "--code-url", CODE_URL, "--processes", "1"]
 
@@ -304,7 +305,8 @@ def test_the_card_names_the_translation_model_its_license_and_the_compute(tmp_pa
                  "the prompt `flan-v1`",
                  "(branch\n  `decode-cache-fixes-batch-translation`, commit `f4d8615f478b6c18de9df8f2dff1f57f775a2521`)",
                  prompt.split("{text}")[0].format(source="English", target="Dutch") + "<segment>\n```",
-                 "A segment of more than 512 tokens (the tokenizer of\n  `google/translategemma-27b-it`) was cut",
+                 "Text of more than 512 tokens (the tokenizer of\n  `google/translategemma-27b-it`) was cut at paragraphs, "
+                 "then lines, then sentences, into segments of at most 512\n  tokens.\n",
                  "[Apache License 2.0](https://ai.google.dev/gemma/docs/gemma_4_license)",
                  "## Acknowledgements\n\nThe translations in this dataset were produced on Cloud TPUs provided by Google's\n"
                  "[TPU Research Cloud (TRC)](https://sites.research.google/trc/about/).\n\n## Citation",
@@ -316,8 +318,8 @@ def test_the_card_names_the_translation_model_its_license_and_the_compute(tmp_pa
                  "`translate_gemma4.py`, `gemma4_engine.py`, `g4_full.py`, `models.yml`, `publish.py`"):
         assert fact in card, fact
     # The plan counted the tokens, with TranslateGemma's tokenizer; the reason says which
-    assert pub.DROPPED["dropped:segment_too_long"] == ("a sentence of more than 512 tokens (the tokenizer of "
-                                                      "`google/translategemma-27b-it`)")
+    assert pub.DROPPED["dropped:segment_too_long"].format(limit=512) == ("a sentence of more than 512 tokens (the "
+                                                                        "tokenizer of `google/translategemma-27b-it`)")
     # The card describes this dataset's own translation, not the experiment's Dutch rows or another model; every
     # placeholder is filled
     for absent in ("TranslateGemma", "Gemma Terms of Use", "finkelstein", "rows of the experiment", "{model",
@@ -340,6 +342,32 @@ def test_the_card_lists_only_the_repairs_made_and_refuses_an_unknown_one(tmp_pat
         pub.main(["build", *args, "--out", str(tmp_path / "hf2")])
     assert not (tmp_path / "hf2").exists()
 
+
+
+def test_the_card_gives_the_segment_limits_of_the_plan_and_of_replan(tmp_path):
+    args = assembled(tmp_path)
+    plan = tmp_path / "plan2" / "plan.json"
+    report = json.loads(json.dumps(NL_REPORT))
+    report["hosts"]["1"]["dropped:segment_too_long"] = report["hosts"]["1"].pop("dropped:answer_not_in_instruction")
+    (tmp_path / "nl" / "report.json").write_text(json.dumps(report))
+    pub.main(["build", *args, "--out", str(tmp_path / "hf")])
+    card = (tmp_path / "hf" / "README.md").read_text()
+    assert "| a sentence of more than 512 tokens (the tokenizer of `google/translategemma-27b-it`) | 1 |" in card
+    assert "In a row with a sentence" not in card
+    # A plan of replan: the rows with a sentence over 512 tokens had segments of up to 2,048, and that is the limit of
+    # the rows still left out
+    plan.write_text(json.dumps({"max_segment_tokens": 512, "replanned": {"max_segment_tokens": 2048}}))
+    pub.main(["build", *args, "--out", str(tmp_path / "hf2")])
+    card = (tmp_path / "hf2" / "README.md").read_text()
+    assert "| a sentence of more than 2,048 tokens (the tokenizer of `google/translategemma-27b-it`) | 1 |" in card
+    assert ("into segments of at most 512\n  tokens. In a row with a sentence of more than 512 tokens the segments were "
+            "at most 2,048 tokens, so that\n  such a sentence was translated whole.\n") in card
+    # What the dataset is, not how it came about
+    for absent in ("replan", "later", "previous", "earlier", "added"):
+        assert absent not in card.lower(), absent
+    plan.write_text("{}")
+    with pytest.raises(SystemExit, match="no max_segment_tokens"):
+        pub.main(["build", *args, "--out", str(tmp_path / "hf3")])
 
 
 def test_a_dutch_row_without_a_link_fails(tmp_path):

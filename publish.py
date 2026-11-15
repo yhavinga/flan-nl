@@ -243,8 +243,9 @@ DROPPED = {
     "dropped:task:english_words": "about English words: their senses (WiC, XL-WiC), the English language, overlapping words",
     "dropped:task:word_relations": "relations between bare words (odd man out, analogies, hypernyms, meronyms, antonyms, "
                                    "semantic relations): a word translated out of context can lose the sense the answer rests on",
-    # The plan (flan_nl.py plan) counts tokens with this tokenizer, whatever model translates the segments
-    "dropped:segment_too_long": "a sentence of more than 512 tokens (the tokenizer of `google/translategemma-27b-it`)",
+    # The plan (flan_nl.py plan) counts tokens with this tokenizer, whatever model translates the segments; {limit} is
+    # the plan's limit, or replan's where the plan was replanned (card())
+    "dropped:segment_too_long": "a sentence of more than {limit:,} tokens (the tokenizer of `google/translategemma-27b-it`)",
     "dropped:segment_truncated": "a translation did not end within the decode limit",
     "dropped:segment_empty": "a translation is empty",
     "dropped:segment_length_ratio": "a translation has an implausible length: outside 0.5-2.2 times the source's characters "
@@ -491,6 +492,9 @@ def build(args):
         raise SystemExit(f"{args.links} has the links of hosts {sorted(link_report['hosts'])}, the assembly hosts {hosts}")
     links = read_links([Path(args.links, f"w{h}.parquet") for h in hosts])
     plan = pq.read_table(Path(args.plan, "examples.parquet"), columns=["host", "position", "status"])
+    plan_summary = json.loads(Path(args.plan, "plan.json").read_text())
+    if "max_segment_tokens" not in plan_summary:
+        raise SystemExit(f"{args.plan}/plan.json has no max_segment_tokens: not a plan of flan_nl.py plan or replan")
     status = dict(zip(zip(plan.column("host").to_pylist(), plan.column("position").to_pylist()),
                       plan.column("status").to_pylist()))
 
@@ -575,6 +579,9 @@ def build(args):
         "folder_tasks": Counter(f for f, _ in set(zip(meta["folder"], meta["task_name"]))),
         "dutch_tasks": sorted({t for t, kept in zip(meta["task_name"], meta["translated"]) if not kept}),
         "publication": report,
+        # The most tokens of a segment, and of a segment of an example that replan planned again (None: no replan)
+        "segment_tokens": plan_summary["max_segment_tokens"],
+        "long_segment_tokens": plan_summary.get("replanned", {}).get("max_segment_tokens"),
     }
     if report["rows"] != facts["rows"]:
         raise RuntimeError(f"{report['rows']:,} rows kept by the checks, {facts['rows']:,} in the data")
@@ -680,7 +687,14 @@ def card(facts, nl_report, link_report, repo, code_url):
         f_drop_rows.append((what, f"{f_dropped.get(why, 0):,}"))
     task_drop_rows = [(DROPPED[f"dropped:task:{reason}"], f"{len(names):,}", f"{task_rows(reason):,}")
                       for reason, names in flan_nl.DROPPED_TASKS.items()]
-    after_rows = [(DROPPED[k], f"{hosts[k]:,}") for k in DROPPED if not k.startswith("dropped:task:") and hosts.get(k)]
+    limit, long_limit = facts["segment_tokens"], facts["long_segment_tokens"]
+    reasons = dict(DROPPED, **{"dropped:segment_too_long": DROPPED["dropped:segment_too_long"].format(limit=long_limit or limit)})
+    after_rows = [(reasons[k], f"{hosts[k]:,}") for k in DROPPED if not k.startswith("dropped:task:") and hosts.get(k)]
+    cut = (f"Text of more than {limit:,} tokens (the tokenizer of\n  `google/translategemma-27b-it`) was cut at "
+           f"paragraphs, then lines, then sentences, into segments of at most {limit:,}\n  tokens.")
+    if long_limit:
+        cut += (f" In a row with a sentence of more than {limit:,} tokens the segments were at most {long_limit:,} "
+                f"tokens, so that\n  such a sentence was translated whole.")
     segment_rows = [(f"`{k}`", v, f"{unusable.get(k, 0):,}") for k, v in SEGMENT_CHECKS.items()]
     variant_rows = []
     for english, counts in variants.items():
@@ -789,8 +803,7 @@ and by two checks of the translations for this publication (step 6).
   ({nl_report["segments"]:,} segments). Multiple-choice options (labelled A/B/C, a/b/c, 1/2/3, i/ii/iii, `Option1:`,
   and bullet lists after a header such as `OPTIONS:`) are segments of their own; labels and separators were kept. An
   answer that is the text of an option got that option's translation, so it is still one of the options; an answer
-  that is a label stayed the label. A segment of more than 512 tokens (the tokenizer of
-  `google/translategemma-27b-it`) was cut at paragraphs, then lines, then sentences.
+  that is a label stayed the label. {cut}
 - Template strings: {len(variants)} fixed strings of FLAN's templates (labels such as `Q:`, `Answer:`, `Definition:`
   and opening sentences such as `Given the task definition and input, reply with output.`) were not machine
   translated but replaced by Dutch phrasings from a table with one or more variants per string, written by the
