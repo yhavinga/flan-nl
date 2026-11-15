@@ -5,6 +5,8 @@ Steps (README.md), each a subcommand here except the translation itself (transla
     extract   per host: this host's FLAN rows, from Open-Orca/FLAN (flan_select.py) or from a training mix of the
               experiment (--mix-list) -> <root>/en/w<rank>.parquet
     plan      on one machine: task filters, the pieces of every example, the distinct segments -> <root>/plan/
+    replan    on one machine: the examples with a sentence over the plan's limit planned again with a larger one, the
+              plan's other examples and segments as they are -> a new plan directory
     assemble  on one machine: the translations back into examples, the checks -> <root>/nl/w<rank>.parquet, report
 
 "F" in the comments is the FLAN arm of the experiment the published dataset comes from: its training mixes held the
@@ -26,11 +28,17 @@ import os
 import re
 import unicodedata
 from collections import Counter
+from pathlib import Path
 
 # Most source tokens (TranslateGemma's tokenizer) of one segment: its training data were "individual sentences and
 # text blobs of up to 512 tokens" (TranslateGemma technical report, arXiv 2601.09012v2); longer text is split at
 # paragraph, then line, then sentence boundaries.
 MAX_SEGMENT_TOKENS = 512
+# An example with a sentence longer than that is planned again (replan) with this limit: Gemma 4 31B-it translated
+# whole passages of up to 2,048 tokens as well as the same text in pieces of ~512 (the length trial of
+# github.com/yhavinga/nl-backtranslation, gemma4_bt/bt_long.py), with the MaxText fork that decodes past the sliding
+# window of 1,024 tokens
+MAX_LONG_SEGMENT_TOKENS = 2048
 
 # Tasks whose examples do not survive translation, by reason. Names are FLAN's _task_name (NIv2 with its number).
 DROPPED_TASKS = {
@@ -832,7 +840,7 @@ def load_templates(paths):
     return tuple(sorted(keys - UNPROTECTED, key=lambda k: (-len(k), k)))
 
 
-def _plan_rows(rows):
+def _plan_rows(rows, limit=MAX_SEGMENT_TOKENS):
     """In a worker process: (status, instruction, answer, info, {segment: tokens}) per (source, inputs, targets)."""
     counted = {}
 
@@ -852,7 +860,7 @@ def _plan_rows(rows):
             status = "dutch_task"
         else:
             try:
-                instruction, answer, info = plan_example(inputs, targets, count_tokens, templates=_TEMPLATES)
+                instruction, answer, info = plan_example(inputs, targets, count_tokens, limit, templates=_TEMPLATES)
                 status = "translate"
             except SegmentTooLong:
                 status = "segment_too_long"
@@ -920,6 +928,133 @@ def plan(args):
                "examples_with_templates": sum(1 for p in examples["instruction"] if '["T",' in p)}
     json.dump(summary, open(f"{args.out}/plan.json", "w"), indent=1, ensure_ascii=False)
     print(f"PLAN {json.dumps(summary)}", flush=True)
+
+
+def _encoded(pieces, segment_ids):
+    """pieces as examples.parquet holds them (plan): JSON, a segment by its id"""
+    return json.dumps([[k, segment_ids[v] if k == "S" else v] for k, v in pieces], ensure_ascii=False)
+
+
+def replan(args):
+    """The examples of a plan with a sentence over its limit (status segment_too_long) planned again with --limit, into
+    a new plan directory: every other example and every segment of the plan as they are, so that the plan's
+    translations still hold; the new segments get the ids after the plan's last, each in the segment file of its id
+    (id mod the number of files), and also go to new-segments.parquet (up to the plan's limit) and
+    new-segments-long.parquet (longer), the input of their translation. An example still too long stays
+    segment_too_long. First a sample of the plan's examples to translate is planned again at the plan's own limit:
+    their pieces and token counts must be the plan's, and the examples to plan again must be too long there, or the
+    tokenizer, the template strings or plan_example are not the plan's."""
+    import random
+    from collections import ChainMap
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    old, out = Path(args.plan), Path(args.out)
+    if out.exists() and any(out.iterdir()):
+        raise SystemExit(f"{out} is not empty")
+    summary = json.loads((old / "plan.json").read_text())
+    if "replanned" in summary:
+        raise SystemExit(f"{old} was made by replan: replan the plan it came from")
+    limit = summary["max_segment_tokens"]
+    if args.limit <= limit:
+        raise SystemExit(f"--limit {args.limit} is not above the plan's limit of {limit} tokens")
+    templates = tuple(summary["templates"])
+    examples = _read_parquet(old / "examples.parquet")
+    columns = {c: examples.column(c).to_pylist() for c in examples.column_names}
+    if dict(Counter(columns["status"])) != summary["status"]:
+        raise SystemExit(f"{old}/plan.json counts the statuses {summary['status']}, examples.parquet "
+                         f"{dict(Counter(columns['status']))}")
+    world = len(list(old.glob("segments-w*.parquet")))
+    tables = [_read_parquet(old / f"segments-w{w}.parquet") for w in range(world)]
+    segment_ids, tokens = {}, {}
+    for w, table in enumerate(tables):
+        for i, text, n in zip(*(table.column(c).to_pylist() for c in ("id", "text", "tokens"))):
+            if i % world != w or i in tokens or text in segment_ids:
+                raise SystemExit(f"segment {i} of segments-w{w}.parquet: not the plan's layout (id mod {world}) or twice")
+            segment_ids[text], tokens[i] = i, n
+    first_new = len(tokens)
+    if (min(tokens), max(tokens) + 1) != (0, first_new) or first_new != summary["segments"]:
+        raise SystemExit(f"the segment ids are not 0 to {summary['segments'] - 1} of plan.json")
+    english = {}
+    for path in args.english:
+        table = _read_parquet(path, ["host", "position", "source", "inputs", "targets"])
+        for h, p, s, x, y in zip(*(table.column(c).to_pylist() for c in ("host", "position", "source", "inputs", "targets"))):
+            english[(h, p)] = (s, x, y)
+    keys = list(zip(columns["host"], columns["position"]))
+    chosen = [k for k, s in enumerate(columns["status"]) if s == "segment_too_long"]
+    if not chosen:
+        raise SystemExit(f"{old} has no example with status segment_too_long")
+    to_translate = [k for k, s in enumerate(columns["status"]) if s == "translate"]
+    sample = sorted(random.Random(args.seed).sample(to_translate, min(args.check, len(to_translate))))
+    for k in sample + chosen:
+        if english.get(keys[k], (None,))[0] != columns["source"][k]:
+            raise SystemExit(f"example {keys[k]} ({columns['source'][k]}) is not in the extracts --english")
+    _load_tokenizer(args.tokenizer, templates)
+
+    for k, (status, instruction, answer, info, counted) in zip(sample + chosen,
+                                                               _plan_rows([english[keys[k]] for k in sample + chosen], limit)):
+        if columns["status"][k] == "segment_too_long":
+            if status != "segment_too_long":
+                raise SystemExit(f"example {keys[k]} planned again at {limit} tokens is {status}, not segment_too_long")
+            continue
+        try:
+            got = (status, _encoded(instruction, segment_ids), _encoded(answer, segment_ids), info["options"],
+                   info["answer"], info["splits"])
+        except KeyError as missing:
+            raise SystemExit(f"example {keys[k]} planned again has a segment the plan does not have: {str(missing)[:120]}")
+        want = tuple(columns[c][k] for c in ("status", "instruction", "answer", "options", "answer_kind", "splits"))
+        wrong = {t: (n, tokens[segment_ids[t]]) for t, n in counted.items() if tokens[segment_ids[t]] != n}
+        if got != want or wrong:
+            raise SystemExit(f"example {keys[k]} planned again is not the plan's: {got[:2]} != {want[:2]}, or token "
+                             f"counts (now, plan) {list(wrong.values())[:3]}")
+    print(f"replan: {len(sample):,} examples to translate planned again at {limit} tokens as the plan has them; the "
+          f"{len(chosen)} with status segment_too_long are too long there", flush=True)
+
+    planned = _plan_rows([english[keys[k]] for k in chosen], args.limit)
+    new = {}
+    for _, _, _, _, counted in planned:
+        for text, n in counted.items():
+            if text in segment_ids and tokens[segment_ids[text]] != n:
+                raise SystemExit(f"segment {segment_ids[text]} has {n} tokens now, {tokens[segment_ids[text]]} in the plan")
+            if text not in segment_ids:
+                new[text] = n
+    # As plan orders them: shortest first
+    texts = sorted(new, key=lambda t: (new[t], t))
+    new_ids = {t: first_new + j for j, t in enumerate(texts)}
+    ids = ChainMap(new_ids, segment_ids)
+    after = Counter()
+    for k, (status, instruction, answer, info, _) in zip(chosen, planned):
+        for key, value in (("status", status), ("instruction", _encoded(instruction, ids)), ("answer", _encoded(answer, ids)),
+                           ("options", info["options"]), ("answer_kind", info["answer"]), ("splits", info["splits"])):
+            columns[key][k] = value
+        after[status] += 1
+    out.mkdir(parents=True, exist_ok=True)
+    pq.write_table(pa.Table.from_pydict(columns, schema=examples.schema), out / "examples.parquet", compression="zstd")
+
+    def segment_table(chosen_texts):
+        return pa.Table.from_pydict({"id": [new_ids[t] for t in chosen_texts], "text": chosen_texts,
+                                     "tokens": [new[t] for t in chosen_texts]}, schema=tables[0].schema)
+
+    for w, table in enumerate(tables):
+        pq.write_table(pa.concat_tables([table, segment_table([t for t in texts if new_ids[t] % world == w])]),
+                       out / f"segments-w{w}.parquet", compression="zstd")
+    pq.write_table(segment_table([t for t in texts if new[t] <= limit]), out / "new-segments.parquet", compression="zstd")
+    pq.write_table(segment_table([t for t in texts if new[t] > limit]), out / "new-segments-long.parquet", compression="zstd")
+    summary.update({
+        "status": dict(Counter(columns["status"])), "segments": first_new + len(texts),
+        "segment_tokens": summary["segment_tokens"] + sum(new.values()), "answer_kind": dict(Counter(columns["answer_kind"])),
+        "with_options": sum(1 for n in columns["options"] if n), "examples_split": sum(1 for n in columns["splits"] if n),
+        "extra_segments_from_splits": sum(columns["splits"]),
+        "examples_with_templates": sum(1 for p in columns["instruction"] if '["T",' in p),
+        "replanned": {"plan": str(args.plan), "status": "segment_too_long", "max_segment_tokens": args.limit,
+                      "tokenizer": args.tokenizer, "checked": len(sample), "examples": len(chosen),
+                      "status_after": dict(after), "new_segments": len(texts), "new_segment_tokens": sum(new.values()),
+                      "new_segments_long": sum(1 for t in texts if new[t] > limit),
+                      "longest_new_segment": max(new.values(), default=0), "first_new_id": first_new,
+                      "ids": [f"w{h}-{p}" for h, p in (keys[k] for k in chosen)]}})
+    (out / "plan.json").write_text(json.dumps(summary, indent=1, ensure_ascii=False))
+    print(f"REPLAN {json.dumps(summary['replanned'])}", flush=True)
 
 
 def sample(args):
@@ -1252,6 +1387,16 @@ def main(argv=None):
     p.add_argument("--processes", type=int, default=64)
     p.add_argument("--templates", nargs="*", default=None,
                    help="templates_top30.json, templates_extra.json and/or a phrasing table: template strings to protect")
+    p = sub.add_parser("replan", help="the examples with a sentence over the plan's limit, planned again with a larger one")
+    p.add_argument("--plan", required=True, help="the plan's directory (examples.parquet, plan.json, segments-w*.parquet)")
+    p.add_argument("--english", nargs="+", required=True, help="the extract files of all hosts")
+    p.add_argument("--tokenizer", required=True, help="the plan's tokenizer directory (TranslateGemma's)")
+    p.add_argument("--out", required=True, help="the new plan's directory, absent or empty")
+    p.add_argument("--limit", type=int, default=MAX_LONG_SEGMENT_TOKENS,
+                   help=f"most tokens of a segment of the examples planned again (default: {MAX_LONG_SEGMENT_TOKENS})")
+    p.add_argument("--check", type=int, default=2000,
+                   help="examples of the plan planned again first at its own limit, to compare (default: 2000)")
+    p.add_argument("--seed", type=int, default=0, help="seed of the sample of --check")
     p = sub.add_parser("sample", help="a plan of N random examples, for the pilot")
     p.add_argument("--plan", required=True)
     p.add_argument("--out", required=True)
@@ -1275,7 +1420,8 @@ def main(argv=None):
     p.add_argument("--processes", type=int, default=64)
     p.add_argument("--templates-nl", default=None, help="templates_nl.json, the hand-chosen Dutch variants of the template strings")
     args = parser.parse_args(argv)
-    {"extract": extract, "plan": plan, "sample": sample, "templates": templates, "assemble": assemble}[args.step](args)
+    {"extract": extract, "plan": plan, "replan": replan, "sample": sample, "templates": templates,
+     "assemble": assemble}[args.step](args)
 
 
 if __name__ == "__main__":

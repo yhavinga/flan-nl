@@ -596,3 +596,182 @@ def test_extract_from_the_hub_defaults_to_the_published_selection(tmp_path, monk
     assert pq.read_table(tmp_path / "w1-5.parquet").to_pylist() == table.slice(0, 5).to_pylist()
     with pytest.raises(SystemExit, match="rows asked, the pool has"):
         fn.main([*args, "--world", "2", "--cap", "20", "--max-length", "20", "--rows", "100000"])
+
+
+# ------------------------------------------------------------------------------------------------------------ replan
+
+REPLAN_TASK = "flan/t0_zsopt_data/t0_a"
+# 750 words without a sentence boundary: too long for a segment of 512, not for one of 2,048
+FACTS = "Facts: " + " - ".join(f"fact{k}: value{k}" for k in range(250))
+WORDS_2100 = " ".join(f"term{k}" for k in range(2100))
+
+
+def replan_rows():
+    """(host, position, source, inputs, targets); (0, 2), (1, 3) and (1, 5) are too long for the plan's 512 tokens a
+    segment"""
+    return [(0, 0, REPLAN_TASK, "Q: Is item 1 red?\nOPTIONS:\n- yes\n- no\nA:", "yes"),
+            (1, 1, REPLAN_TASK, "Write a word for 3 things.\nOutput:", "many 3 things"),
+            # its answer is a segment of the plan already
+            (0, 2, REPLAN_TASK, f"{FACTS}\nWrite a word for 3 things.\nOutput:", "many 3 things"),
+            # too long for 2,048 as well
+            (1, 3, REPLAN_TASK, f"Q: {WORDS_2100}\nA:", "yes"),
+            (0, 4, REPLAN_TASK, "Q: Is item 4 blue?\nOPTIONS:\n- yes\n- no\nA:", "no"),
+            # one option a segment of the plan already, the other a new short one
+            (1, 5, REPLAN_TASK, f"Q: {FACTS}\nOPTIONS:\n- yes\n- maybe so\nA:", "maybe so")]
+
+
+class WordTokenizer:
+    """A token a word, as the plan's tokenizer is called (_plan_rows, _count_tokens)"""
+
+    def __init__(self, count=str.split):
+        self.count = count
+
+    def __call__(self, text, add_special_tokens=False):
+        return {"input_ids": self.count(text)}
+
+
+@pytest.fixture
+def word_plan(tmp_path, monkeypatch):
+    """The English extracts of replan_rows and their plan from flan_nl.py plan (a word a token, in threads), plan2/;
+    set_tokenizer(tokenizer) sets the tokenizer that _load_tokenizer loads from then on"""
+    import concurrent.futures
+
+    tokenizer = {"now": WordTokenizer()}
+
+    def load(path, templates=()):
+        monkeypatch.setattr(fn, "_TOKENIZER", tokenizer["now"])
+        monkeypatch.setattr(fn, "_TEMPLATES", tuple(templates))
+
+    monkeypatch.setattr(fn, "_load_tokenizer", load)
+    monkeypatch.setattr(concurrent.futures, "ProcessPoolExecutor", concurrent.futures.ThreadPoolExecutor)
+    en = tmp_path / "en"
+    en.mkdir()
+    for h in (0, 1):
+        rows = [r for r in replan_rows() if r[0] == h]
+        pq.write_table(pa.table({"host": [r[0] for r in rows], "position": [r[1] for r in rows], "source": [r[2] for r in rows],
+                                 "inputs": [r[3] for r in rows], "targets": [r[4] for r in rows]}), en / f"w{h}.parquet")
+    english = [str(en / "w0.parquet"), str(en / "w1.parquet")]
+    (tmp_path / "plan2").mkdir()
+    fn.main(["plan", "--english", *english, "--tokenizer", "words", "--out", str(tmp_path / "plan2"), "--world", "2",
+             "--processes", "1", "--templates", str(ROOT / "templates_nl.json")])
+    return tmp_path / "plan2", english, lambda t: tokenizer.update(now=t)
+
+
+def plan_templates(plan):
+    return json.loads((plan / "plan.json").read_text())["templates"]
+
+
+def read_segments(directory, names):
+    rows = []
+    for name in names:
+        rows += pq.read_table(directory / name).to_pylist()
+    return rows
+
+
+def test_replan_plans_the_too_long_examples_again_and_keeps_every_other_example_and_segment(tmp_path, word_plan):
+    plan2, english, _ = word_plan
+    before = json.loads((plan2 / "plan.json").read_text())
+    assert before["status"] == {"translate": 3, "segment_too_long": 3} and before["max_segment_tokens"] == 512
+    plan3 = tmp_path / "plan3"
+    fn.main(["replan", "--plan", str(plan2), "--english", *english, "--tokenizer", "words", "--out", str(plan3),
+             "--check", "3"])
+    old, new = (pq.read_table(p / "examples.parquet") for p in (plan2, plan3))
+    assert new.schema == old.schema
+    old, new = old.to_pylist(), new.to_pylist()
+    replanned = [k for k, r in enumerate(old) if r["status"] == "segment_too_long"]
+    assert [(old[k]["host"], old[k]["position"]) for k in replanned] == [(0, 2), (1, 3), (1, 5)]
+    assert [r for k, r in enumerate(new) if k not in replanned] == [r for k, r in enumerate(old) if k not in replanned]
+    fits, still, options = (new[k] for k in replanned)
+    assert still == old[replanned[1]] and (still["instruction"], still["answer"]) == ("[]", "[]")
+    assert (fits["status"], fits["answer_kind"]) == ("translate", "text")
+    assert (options["status"], options["answer_kind"], options["options"]) == ("translate", "option", 2)
+
+    # The plan's segments keep their ids, files and token counts; the new ones follow, each in the file of its id
+    n = before["segments"]
+    for w in (0, 1):
+        old_rows = pq.read_table(plan2 / f"segments-w{w}.parquet").to_pylist()
+        new_rows = pq.read_table(plan3 / f"segments-w{w}.parquet").to_pylist()
+        assert new_rows[:len(old_rows)] == old_rows
+        assert all(r["id"] >= n and r["id"] % 2 == w for r in new_rows[len(old_rows):])
+    every = {r["id"]: r for r in read_segments(plan3, ["segments-w0.parquet", "segments-w1.parquet"])}
+    added = sorted(i for i in every if i >= n)
+    short, long = (read_segments(plan3, [name]) for name in ("new-segments.parquet", "new-segments-long.parquet"))
+    assert sorted(r["id"] for r in short + long) == added == list(range(n, len(every)))
+    assert [(r["text"], r["tokens"]) for r in short] == [("maybe so", 2)]
+    assert [(r["text"], r["tokens"]) for r in long] == [(f"{FACTS}\nOPTIONS:", 751), (f"{FACTS}\nWrite a word for 3 things.", 756)]
+    # The answer of (0, 2) is the plan's segment of (1, 1), with its id; so is the option "yes" of (1, 5)
+    segment_of = {r["text"]: r["id"] for r in every.values()}
+    assert json.loads(fits["answer"]) == [["S", segment_of["many 3 things"]]] and segment_of["many 3 things"] < n
+    assert segment_of["yes"] < n and ["S", segment_of["yes"]] in json.loads(options["instruction"])
+    assert json.loads(options["answer"]) == [["S", segment_of["maybe so"]]]
+    for example, english in ((fits, replan_rows()[2][3]), (options, replan_rows()[5][3])):
+        instruction = [(k, every[v]["text"] if k == "S" else v) for k, v in json.loads(example["instruction"])]
+        assert fn.render(instruction, {t: t for t in segment_of}, {t: t for t in plan_templates(plan2)}) == english
+
+    after = json.loads((plan3 / "plan.json").read_text())
+    assert after["status"] == {"translate": 5, "segment_too_long": 1} and after["segments"] == len(every)
+    assert after["segment_tokens"] == before["segment_tokens"] + sum(every[i]["tokens"] for i in added)
+    assert (after["max_segment_tokens"], after["templates"], after["template_segments"]) == \
+        (512, before["templates"], before["template_segments"])
+    assert after["replanned"] | {"plan": None} == {
+        "plan": None, "status": "segment_too_long", "max_segment_tokens": 2048, "tokenizer": "words", "checked": 3,
+        "examples": 3, "status_after": {"translate": 2, "segment_too_long": 1}, "new_segments": 3,
+        "new_segment_tokens": 2 + 751 + 756, "new_segments_long": 2, "longest_new_segment": 756,
+        "first_new_id": n, "ids": ["w0-2", "w1-3", "w1-5"]}
+
+    # A plan made by replan is not planned again, a limit must be larger than the plan's, the output a new directory
+    with pytest.raises(SystemExit, match="was made by replan"):
+        fn.main(["replan", "--plan", str(plan3), "--english", *english, "--tokenizer", "words", "--out", str(tmp_path / "p4")])
+    with pytest.raises(SystemExit, match="not above the plan's limit of 512"):
+        fn.main(["replan", "--plan", str(plan2), "--english", *english, "--tokenizer", "words", "--out", str(tmp_path / "p4"),
+                 "--limit", "512"])
+    with pytest.raises(SystemExit, match="is not empty"):
+        fn.main(["replan", "--plan", str(plan2), "--english", *english, "--tokenizer", "words", "--out", str(plan3)])
+
+
+def test_replan_stops_when_the_tokenizer_is_not_the_plans(tmp_path, word_plan):
+    plan2, english, set_tokenizer = word_plan
+    # Two tokens a word: the examples to translate get other token counts, and so the plan's would not hold
+    set_tokenizer(WordTokenizer(lambda text: text.split() * 2))
+    with pytest.raises(SystemExit, match=r"planned again (is not the plan's|at 512 tokens is)"):
+        fn.main(["replan", "--plan", str(plan2), "--english", *english, "--tokenizer", "other", "--out", str(tmp_path / "p3")])
+    assert not (tmp_path / "p3").exists()
+
+
+def test_assembled_over_the_new_plan_only_the_examples_planned_again_change(tmp_path, word_plan):
+    plan2, english, _ = word_plan
+    plan3 = tmp_path / "plan3"
+    fn.main(["replan", "--plan", str(plan2), "--english", *english, "--tokenizer", "words", "--out", str(plan3)])
+
+    def dutch(text):
+        words = {"is": "is", "item": "voorwerp", "red": "rood", "blue": "blauw", "yes": "ja", "no": "nee",
+                 "write": "schrijf", "a": "een", "word": "woord", "for": "voor", "things": "dingen", "many": "veel"}
+        return " ".join(words.get(w.lower().strip("?.:"), w) for w in text.split())
+
+    def shard(directory, rows):
+        directory.mkdir(parents=True)
+        pq.write_table(pa.table({"id": [r["id"] for r in rows], "text_nl": [dutch(r["text"]) for r in rows],
+                                 "ended": [True] * len(rows), "tokens_in": [r["tokens"] for r in rows],
+                                 "tokens_out": [r["tokens"] for r in rows]}), directory / "shard-00000.parquet")
+
+    shard(tmp_path / "tr" / "g4", read_segments(plan2, ["segments-w0.parquet", "segments-w1.parquet"]))
+    shard(tmp_path / "tr" / "g4-long", read_segments(plan3, ["new-segments.parquet", "new-segments-long.parquet"]))
+    out = {}
+    for name, plan, translations in (("nl", plan2, tmp_path / "tr" / "g4"), ("nlb", plan3, tmp_path / "tr")):
+        out[name] = tmp_path / name
+        out[name].mkdir()
+        fn.main(["assemble", "--english", *english, "--plan", str(plan), "--translations", str(translations),
+                 "--out", str(out[name]), "--world", "2", "--processes", "1",
+                 "--templates-nl", str(ROOT / "templates_nl.json")])
+    rows = {name: {h: pq.read_table(d / f"w{h}.parquet").to_pylist() for h in (0, 1)} for name, d in out.items()}
+    for h, position in ((0, 2), (1, 5)):
+        assert [r for r in rows["nlb"][h] if r["position"] != position] == rows["nl"][h]
+    added = {(h, r["position"]): r for h in (0, 1) for r in rows["nlb"][h] if (h, r["position"]) in ((0, 2), (1, 5))}
+    assert sorted(added) == [(0, 2), (1, 5)]
+    assert added[(0, 2)]["inputs"].startswith("Facts: fact0: value0 - ") and added[(0, 2)]["targets"] == "veel 3 dingen"
+    assert added[(1, 5)]["inputs"].endswith("\n- ja\n- maybe so\nA:") and added[(1, 5)]["targets"] == "maybe so"
+    reports = {name: json.loads((d / "report.json").read_text())["hosts"] for name, d in out.items()}
+    assert (reports["nl"]["0"]["dropped:segment_too_long"], reports["nl"]["1"]["dropped:segment_too_long"]) == (1, 2)
+    assert "dropped:segment_too_long" not in reports["nlb"]["0"] and reports["nlb"]["1"]["dropped:segment_too_long"] == 1
+    for h in ("0", "1"):
+        assert reports["nlb"][h]["translated"] == reports["nl"][h]["translated"] + 1
