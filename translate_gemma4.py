@@ -162,6 +162,7 @@ def main(argv=None):
         for key, value in (("segments", len(rows["id"])), ("tokens_in", n_in), ("tokens_out", n_out), ("seconds", seconds)):
             totals[key] += value
         print(f"SHARD {json.dumps({'class': args.length_class, 'shard': name, 'segments': len(rows['id']), 'tokens_in': n_in, 'tokens_out': n_out, 'seconds': round(seconds, 1), 'out_per_s': round(n_out / seconds), 'segments_per_s': round(len(rows['id']) / seconds, 2), 'not_ended': rows['ended'].count(False)})}", flush=True)
+        print(f"MEM {json.dumps({'class': args.length_class, 'shard': name, 'slots': shapes['slots'], **ge.peak_memory()})}", flush=True)
 
     tg.translate_pending(shards, done, translate, store, args.max_shards)
     print(f"DONE {json.dumps({'class': args.length_class, **totals, 'out_per_s': round(totals['tokens_out'] / max(totals['seconds'], 1e-9))})}", flush=True)

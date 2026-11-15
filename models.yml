@@ -50,3 +50,25 @@ models:
       long: {max_source: 384, prefill_lengths: [448, 576], max_decode: 640}
       xlong: {max_source: 512, prefill_lengths: [576, 704], max_decode: 832}
     slots: {tiny: 128, small: 80, medium: 52, long: 36, xlong: 28}
+  # The segments of more than 512 tokens of the examples that flan_nl.py replan planned again (an example with a
+  # sentence of more than 512 tokens, cut into segments of at most 2,048), each translated whole, with the checkpoint,
+  # turn, stop tokens and prompt of gemma4-31b-flan; the segments of up to 512 tokens of those examples go through
+  # gemma4-31b-flan's classes. It needs the MaxText fork at f4d8615, whose decode stays correct past Gemma 4's sliding
+  # window of 1,024 tokens in a slot used before. A prefill length every 128 tokens from 768 (the prompt of such a
+  # segment has more than 512 + 166 tokens) to 2,304 (2,048 + 166), so a prompt is padded by fewer than 128 tokens, as
+  # in the classes of the long back-translation (github.com/yhavinga/nl-backtranslation, gemma4_bt/models.yml,
+  # gemma4-31b-bt-long); MaxText compiles a prefill length when a prompt first needs it. max_decode 2,560, as there.
+  # Memory: the fit of that model's measurements on a v4 chip (30.75 GiB; 15.84 GiB + 0.34 MiB per slot-token + 1.4
+  # MiB per prefill token above 1,152) puts 4 slots of 2,304 + 2,560 at ~23.9 GiB; 8 would be ~30.3 (there, 8 slots of
+  # 2,176 + 2,560 ran out of memory).
+  gemma4-31b-flan-long:
+    maxtext_model: gemma4-31b
+    hf_repo: google/gemma-4-31B-it
+    revision: 842da3794eaa0b77d5f08bae87a17459d91ff475
+    chips: 4
+    eos_ids: [1, 106, 50]
+    prompt: flan-v1
+    turn: {prefix: "<bos><|turn>user\n", suffix: "<turn|>\n<|turn>model\n<|channel>thought\n<channel|>", check: true}
+    length_classes:
+      x2k: {max_source: 2048, prefill_lengths: [768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048, 2176, 2304], max_decode: 2560}
+    slots: {x2k: 4}

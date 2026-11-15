@@ -1,4 +1,4 @@
-# A copy of github.com/yhavinga/nl-backtranslation gemma4_bt/gemma4_engine.py at commit 2057072 (13 Nov 2026), unchanged
+# A copy of github.com/yhavinga/nl-backtranslation gemma4_bt/gemma4_engine.py at commit 8b213b5 (14 Nov 2026), unchanged
 # but for this comment: models.yml is FLAN-nl's own (beside this file), and the environment is setup_gemma4.sh rather
 # than gemma4_bt/setup.sh. A fix to the engine belongs in both repositories.
 """Gemma 4 31B-it in MaxText on the 4 chips of one process: the model and its prompts (models.yml beside this file),
@@ -258,6 +258,16 @@ def translate_shard(device, codec, tokenizer, ids, texts, shapes, sync_every, eo
         rows["tokens_in"].append(len(prompt))
         rows["tokens_out"].append(len(completion) + int(ended))
     return rows, seconds
+
+
+def peak_memory():
+    """The peak HBM of this process's chips so far (GiB) and their limit, as translate.py's MEM line"""
+    import jax
+
+    stats = [d.memory_stats() or {} for d in jax.local_devices()]
+    peaks = [round(s.get("peak_bytes_in_use", 0) / 2 ** 30, 3) for s in stats]
+    return {"peak_gib_max": max(peaks), "peak_gib": peaks,
+            "limit_gib": round(min(s.get("bytes_limit", 0) for s in stats) / 2 ** 30, 3)}
 
 
 # The bucket through the Python client, not gsutil: on the v6e image gsutil is a snap, and a snap refuses to start

@@ -39,6 +39,21 @@ def test_the_classes_are_flan_nls_and_keep_the_decode_limit_within_the_window():
         assert slot_tokens <= 47_000, (name, slot_tokens)
 
 
+def test_the_long_model_takes_the_long_segments_of_replan_whole_with_little_padding():
+    long = ge.MODELS["gemma4-31b-flan-long"]
+    # The model, turn, stop tokens and prompt of the default; only the class differs
+    assert {k: v for k, v in long.items() if k not in ("length_classes", "slots")} == \
+        {k: v for k, v in MODEL.items() if k not in ("length_classes", "slots")}
+    (name, shapes), = long["length_classes"].items()
+    assert tg4.class_bounds("gemma4-31b-flan-long", name) == (0, fn.MAX_LONG_SEGMENT_TOKENS)
+    lengths = shapes["prefill_lengths"]
+    shortest = fn.MAX_SEGMENT_TOKENS + 1 + PROMPT_TOKENS
+    assert shortest <= lengths[0] < shortest + 128 and lengths[-1] >= fn.MAX_LONG_SEGMENT_TOKENS + PROMPT_TOKENS
+    assert all(b - a == 128 for a, b in zip(lengths, lengths[1:]))
+    # 4 slots of 2,304 + 2,560: ~23.9 GiB a v4 chip by the long back-translation's measurements
+    assert long["slots"][name] * (lengths[-1] + shapes["max_decode"]) <= 20_000
+
+
 def test_the_prompt_is_natural_v1_fmt_with_the_sentences_against_carrying_out_the_task():
     plain = ge.PROMPTS[MODEL["prompt"]]["plain"]
     assert plain.startswith("Translate the following {source} text into natural, idiomatic {target}")

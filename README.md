@@ -22,7 +22,9 @@ its dataset card.
   English words; relations between bare words, where a word translated without context can lose the sense the answer
   depends on. Six NIv2 tasks whose text is already Dutch are kept as they are, not translated.
 - **Segments.** Each instruction and answer is cut into segments, and each distinct segment is translated once. A
-  segment of more than 512 tokens (TranslateGemma's tokenizer) is cut at paragraphs, then lines, then sentences.
+  segment of more than 512 tokens (TranslateGemma's tokenizer) is cut at paragraphs, then lines, then sentences. An
+  example with a sentence of more than 512 tokens is cut the same way into segments of at most 2,048 tokens
+  (`flan_nl.py replan`).
 - **Consistent multiple-choice options.** Options (labelled A/B/C, a/b/c, 1/2/3, i/ii/iii, `Option1:`, or bullet lists
   after a header such as `OPTIONS:`) are segments of their own; labels and separators are kept as they are. An answer
   that is the text of an option gets the same translation as that option, so the Dutch answer is still one of the
@@ -193,7 +195,7 @@ and the output (shards with `id`, `text_nl`, `ended`, `tokens_in`, `tokens_out`)
   task for a language model, to be translated and not carried out), greedy, the five length classes of `translate.py`
   with their decode limits (at most 1,024 tokens).
 - **Engine** (`gemma4_engine.py`): a copy of `gemma4_bt/gemma4_engine.py` of
-  [nl-backtranslation](https://github.com/yhavinga/nl-backtranslation) at commit `2057072`, unchanged but for its
+  [nl-backtranslation](https://github.com/yhavinga/nl-backtranslation) at commit `8b213b5`, unchanged but for its
   first comment, with `models.yml` beside it. A copy rather than a dependency: that repository is not a package, and
   the engine is one file; a fix to it belongs in both.
 - **MaxText** (`setup_gemma4.sh`): MaxText from git, the fork `yhavinga/maxtext`, not MaxText 0.2.5, which counts
@@ -233,6 +235,28 @@ python g4_full.py status --units units.json --out gs://<bucket>/<dir>/translatio
 python g4_full.py check --plan plan2 --english en/w0.parquet en/w1.parquet en/w2.parquet en/w3.parquet \
   --shards <local copy of translations/g4> --units units.json --templates-nl templates_nl.json --nl nl-g4 \
   --out report/flan-g4-full.md
+```
+
+**Examples with a sentence of more than 512 tokens** (`flan_nl.py replan`, the model `gemma4-31b-flan-long`). The
+plan leaves out an example with a sentence of more than 512 tokens (`segment_too_long`). `replan` plans those examples
+again with segments of up to 2,048 tokens (`--limit`) into a new plan: the other examples and every segment of the
+plan stay as they are, so the plan's translations still hold, and the new segments get the ids after the plan's last.
+It first plans a sample of the plan's examples again at 512 tokens and stops unless their pieces and token counts are
+the plan's (the same tokenizer and template strings). The new segments of up to 512 tokens (`new-segments.parquet`)
+go through the classes of `gemma4-31b-flan`, the longer ones (`new-segments-long.parquet`) through the one class of
+`gemma4-31b-flan-long` (each whole, 4 slots, a decode limit of 2,560 tokens; it needs the fork at `f4d8615`). Assemble
+over the new plan with both sets of shards under one directory.
+
+```
+python flan_nl.py replan --plan plan2 --english en/w0.parquet en/w1.parquet en/w2.parquet en/w3.parquet \
+  --tokenizer /dev/shm/flan_nl/tokenizer-27b --out plan3
+ROOT=gs://<bucket>/<dir> CKPT=... SEGMENTS=$ROOT/plan3/new-segments.parquet OUT=$ROOT/translations/g4-long \
+  CLASSES="tiny small medium long xlong" bash translate_gemma4.sh
+ROOT=gs://<bucket>/<dir> CKPT=... SEGMENTS=$ROOT/plan3/new-segments-long.parquet OUT=$ROOT/translations/g4-long \
+  CLASSES=x2k EXTRA="--model gemma4-31b-flan-long" bash translate_gemma4.sh
+python flan_nl.py assemble --english en/w0.parquet en/w1.parquet en/w2.parquet en/w3.parquet --plan plan3 \
+  --translations <a directory with copies of translations/g4 and translations/g4-long> --out nl-g4b \
+  --templates-nl templates_nl.json
 ```
 
 ## Outputs
